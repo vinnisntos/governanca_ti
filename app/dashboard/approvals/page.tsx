@@ -1,7 +1,15 @@
-import Link from "next/link";
+import { ClipboardCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { decideAccessRequestAction } from "./actions";
+import { PageHeader } from "@/components/ui/page-header";
+import { FlashToast } from "@/components/ui/flash-toast";
+import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type PendingRequestRow = {
   id: string;
@@ -63,79 +71,69 @@ export default async function ApprovalsPage({
   );
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Aprovações pendentes</h1>
-        <Link href="/dashboard" className="text-sm text-slate-500 underline">
-          Voltar
-        </Link>
-      </div>
+    <>
+      <FlashToast success={successMessage} error={errorMessage} />
 
-      {errorMessage ? (
-        <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-          {errorMessage}
-        </p>
-      ) : null}
-      {successMessage ? (
-        <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-          {successMessage}
-        </p>
-      ) : null}
+      <PageHeader
+        title="Aprovações pendentes"
+        description="Solicitações de acesso que aguardam sua decisão."
+      />
 
       {decidable.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          Nenhuma solicitação aguardando sua decisão no momento.
-        </p>
+        <EmptyState
+          icon={ClipboardCheck}
+          title="Nenhuma solicitação pendente"
+          description="Você não tem nenhuma solicitação aguardando decisão no momento."
+        />
       ) : (
         <ul className="space-y-4">
           {decidable.map((request) => (
-            <li
-              key={request.id}
-              className="rounded-lg border border-slate-200 bg-white p-4"
-            >
-              <p className="font-medium">
-                {request.access_catalog?.name ?? "Sistema removido"}
-              </p>
-              <p className="text-sm text-slate-500">
-                Solicitado por {request.requester?.full_name} (
-                {request.requester?.email})
-              </p>
-              <p className="mt-2 text-sm text-slate-700">{request.justification}</p>
+            <li key={request.id}>
+              <Card>
+                <p className="font-medium text-slate-900">
+                  {request.access_catalog?.name ?? "Sistema removido"}
+                </p>
+                <p className="text-sm text-slate-500">
+                  Solicitado por {request.requester?.full_name} ({request.requester?.email})
+                </p>
+                <p className="mt-2 text-sm text-slate-700">{request.justification}</p>
 
-              <form action={decideAccessRequestAction} className="mt-4 space-y-2">
-                <input type="hidden" name="request_id" value={request.id} />
-                <label htmlFor={`notes-${request.id}`} className="text-xs font-medium text-slate-500">
-                  Observações (obrigatório em caso de recusa)
-                </label>
-                <textarea
-                  id={`notes-${request.id}`}
-                  name="review_notes"
-                  rows={2}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    name="decision"
-                    value="aprovado"
-                    className="rounded-md bg-green-700 px-3 py-1.5 text-sm font-medium text-white"
+                <form action={decideAccessRequestAction} className="mt-4 space-y-3">
+                  <input type="hidden" name="request_id" value={request.id} />
+                  <Field
+                    label="Observações"
+                    htmlFor={`notes-${request.id}`}
+                    hint="Obrigatório em caso de recusa"
                   >
-                    Aprovar
-                  </button>
-                  <button
-                    type="submit"
-                    name="decision"
-                    value="negado"
-                    className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white"
-                  >
-                    Recusar
-                  </button>
-                </div>
-              </form>
+                    <Textarea id={`notes-${request.id}`} name="review_notes" rows={2} />
+                  </Field>
+                  <div className="flex gap-2">
+                    <SubmitButton
+                      name="decision"
+                      value="aprovado"
+                      variant="primary"
+                      pendingLabel="Aprovando..."
+                    >
+                      Aprovar
+                    </SubmitButton>
+                    <ConfirmSubmitButton
+                      name="decision"
+                      value="negado"
+                      variant="destructive"
+                      title="Recusar esta solicitação?"
+                      description="O solicitante será notificado e poderá ver o motivo informado no campo de observações."
+                      confirmLabel="Recusar solicitação"
+                      cancelLabel="Voltar"
+                    >
+                      Recusar
+                    </ConfirmSubmitButton>
+                  </div>
+                </form>
+              </Card>
             </li>
           ))}
         </ul>
       )}
-    </main>
+    </>
   );
 }
