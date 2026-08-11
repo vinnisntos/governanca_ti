@@ -16,6 +16,7 @@ type PendingRequestRow = {
   justification: string;
   created_at: string;
   access_catalog: { name: string } | null;
+  requested_system_name: string | null;
   requester: {
     id: string;
     full_name: string;
@@ -55,7 +56,7 @@ export default async function ApprovalsPage({
   const { data: pending } = await supabase
     .from("access_requests")
     .select(
-      "id, justification, created_at, access_catalog(name), requester:profiles!access_requests_requester_id_fkey(id, full_name, email, manager_id)"
+      "id, justification, created_at, access_catalog(name), requested_system_name, requester:profiles!access_requests_requester_id_fkey(id, full_name, email, manager_id)"
     )
     .eq("status", "pendente")
     .neq("requester_id", user.id)
@@ -91,7 +92,12 @@ export default async function ApprovalsPage({
             <li key={request.id}>
               <Card>
                 <p className="font-medium text-slate-900">
-                  {request.access_catalog?.name ?? "Sistema removido"}
+                  {request.access_catalog?.name ?? request.requested_system_name ?? "Sistema removido"}
+                  {!request.access_catalog && request.requested_system_name ? (
+                    <span className="ml-2 text-xs font-normal text-amber-600">
+                      (fora do catálogo)
+                    </span>
+                  ) : null}
                 </p>
                 <p className="text-sm text-slate-500">
                   Solicitado por {request.requester?.full_name} ({request.requester?.email})

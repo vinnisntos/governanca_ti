@@ -9,6 +9,7 @@ import {
   ListChecks,
   Phone,
   PhoneCall,
+  ShieldCheck,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -21,6 +22,7 @@ export function getNavItems(role: string | null | undefined): NavItem[] {
 
   const items: NavItem[] = [
     { href: "/dashboard", label: "Início", icon: Home },
+    { href: "/dashboard/meus-acessos", label: "Meus acessos", icon: ShieldCheck },
     { href: "/dashboard/access-requests", label: "Minhas solicitações", icon: KeyRound },
   ];
 

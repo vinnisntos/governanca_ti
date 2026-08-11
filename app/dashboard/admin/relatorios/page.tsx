@@ -40,6 +40,7 @@ type DeniedRequestRow = {
   review_notes: string | null;
   decision_at: string | null;
   access_catalog: { name: string } | null;
+  requested_system_name: string | null;
   requester: { full_name: string } | null;
 };
 
@@ -97,7 +98,7 @@ export default async function ExecutiveDashboardPage() {
     supabase
       .from("access_requests")
       .select(
-        "id, review_notes, decision_at, access_catalog(name), requester:profiles!access_requests_requester_id_fkey(full_name)"
+        "id, review_notes, decision_at, access_catalog(name), requested_system_name, requester:profiles!access_requests_requester_id_fkey(full_name)"
       )
       .eq("status", "negado")
       .order("decision_at", { ascending: false })
@@ -155,7 +156,7 @@ export default async function ExecutiveDashboardPage() {
               <li key={r.id}>
                 <Card className="p-3 text-sm">
                   <span className="font-medium text-slate-900">
-                    {r.access_catalog?.name ?? "Sistema removido"}
+                    {r.access_catalog?.name ?? r.requested_system_name ?? "Sistema removido"}
                   </span>
                   {" — "}
                   {r.requester?.full_name ?? "Colaborador removido"}
