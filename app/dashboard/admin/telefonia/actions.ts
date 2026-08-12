@@ -17,6 +17,14 @@ function emptyToNull(value: FormDataEntryValue | null) {
   return value;
 }
 
+// Number(null) e Number("") retornam 0 (não NaN) — um monthly_cost ausente
+// passaria a validação .nonnegative() como custo zero válido em vez de ser
+// rejeitado. Mesmo padrão já usado em admin/catalogo/actions.ts.
+function toNumberOrNull(value: FormDataEntryValue | null) {
+  if (typeof value !== "string" || value.length === 0) return null;
+  return Number(value);
+}
+
 export async function createMobileLineAction(formData: FormData) {
   await assertTrustedOrigin();
 
@@ -29,7 +37,7 @@ export async function createMobileLineAction(formData: FormData) {
     phone_number: formData.get("phone_number"),
     carrier: formData.get("carrier"),
     plan_name: formData.get("plan_name"),
-    monthly_cost: Number(formData.get("monthly_cost")),
+    monthly_cost: toNumberOrNull(formData.get("monthly_cost")),
     line_type: formData.get("line_type"),
     status: formData.get("status"),
     assigned_to: emptyToNull(formData.get("assigned_to")),
@@ -62,7 +70,7 @@ export async function updateMobileLineAction(formData: FormData) {
     id: formData.get("id"),
     carrier: formData.get("carrier"),
     plan_name: formData.get("plan_name"),
-    monthly_cost: Number(formData.get("monthly_cost")),
+    monthly_cost: toNumberOrNull(formData.get("monthly_cost")),
     line_type: formData.get("line_type"),
     status: formData.get("status"),
     assigned_to: emptyToNull(formData.get("assigned_to")),

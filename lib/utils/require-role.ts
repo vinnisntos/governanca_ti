@@ -27,12 +27,12 @@ export async function requireRole(allowed: Role[]) {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, is_active")
     .eq("id", user.id)
     .single();
 
   return {
-    authorized: !!profile && allowed.includes(profile.role),
+    authorized: !!profile && profile.is_active && allowed.includes(profile.role),
     supabase,
     user,
   };

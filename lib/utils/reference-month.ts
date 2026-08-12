@@ -1,12 +1,18 @@
 // Arquitetura alinhada com as diretrizes do ADR Master.
 //
-// Sempre o primeiro dia do mês corrente em UTC — deve corresponder
-// exatamente ao que a constraint uq_checkin_asset_month (asset_id,
-// reference_month) espera no banco, que é a garantia real de "1 check-in
-// por máquina/mês" (supabase/migrations/0001_init.sql, bloco 4).
+// Sempre o primeiro dia do mês corrente em America/Sao_Paulo (não UTC) — o
+// negócio é brasileiro, e UTC vira o mês ~3h antes da meia-noite em
+// horário de Brasília, atribuindo check-ins feitos no fim da noite ao mês
+// errado. Deve corresponder ao que o trigger fn_lock_hardware_checkin_fields
+// calcula no banco (supabase/migrations/0001_init.sql, bloco 4), que é a
+// fonte de verdade real por sobrescrever qualquer valor enviado pelo client.
 export function currentReferenceMonth(): string {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = parts.find((p) => p.type === "year")!.value;
+  const month = parts.find((p) => p.type === "month")!.value;
   return `${year}-${month}-01`;
 }

@@ -151,7 +151,10 @@ export async function uploadHardwareContractAction(formData: FormData) {
 
   if (insertError) {
     console.error("[hardware-contracts] insert failed", { message: insertError.message });
-    redirectWithError(PATH, "Arquivo enviado, mas não foi possível registrar o contrato.");
+    // Remove o PDF já enviado (linha 136-138) para não deixar arquivo órfão
+    // no Storage sem nenhum hardware_contracts que o referencie.
+    await supabase.storage.from("hardware-contracts").remove([storagePath]);
+    redirectWithError(PATH, "Não foi possível registrar o contrato.");
   }
 
   redirectWithSuccess(PATH, "Contrato anexado.");

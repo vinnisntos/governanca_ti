@@ -39,7 +39,12 @@ export async function createSupabaseServerClient() {
         ) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, {
+                ...options,
+                httpOnly: true,
+                secure: true,
+                sameSite: "strict",
+              })
             );
           } catch {
             // Setar cookies a partir de um Server Component (fora de uma

@@ -206,11 +206,17 @@ export default async function HardwarePage({
                               <Checkbox name="maintenance_requested" />
                               Solicitar manutenção/revisão
                             </label>
-                            <Textarea
-                              name="maintenance_details"
-                              rows={2}
-                              placeholder="Descreva o problema, se marcou a opção acima"
-                            />
+                            <Field
+                              label="Detalhes do problema"
+                              htmlFor={`maintenance-details-${asset.id}`}
+                              hint="Descreva o problema, se marcou a opção acima"
+                            >
+                              <Textarea
+                                id={`maintenance-details-${asset.id}`}
+                                name="maintenance_details"
+                                rows={2}
+                              />
+                            </Field>
                           </div>
 
                           <div className="flex justify-end">

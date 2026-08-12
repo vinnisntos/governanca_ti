@@ -64,7 +64,7 @@ exception when duplicate_object then null; end $$;
 
 create table if not exists public.departments (
   id uuid primary key default gen_random_uuid(),
-  name text not null unique,
+  name text not null unique check (length(trim(name)) > 0),
   created_at timestamptz not null default now()
 );
 
@@ -159,7 +159,7 @@ $$;
 
 create table if not exists public.access_catalog (
   id uuid primary key default gen_random_uuid(),
-  name text not null unique,
+  name text not null unique check (length(trim(name)) > 0),
   description text,
   owner_department_id uuid references public.departments (id),
   -- Custo mensal da licença/assinatura (quando aplicável) — alimenta o
@@ -248,6 +248,14 @@ begin
     new.decision_at := null;
   elsif tg_op = 'UPDATE' then
     if new.status is distinct from old.status then
+      -- Decisão já tomada (aprovado/negado) ou cancelamento já registrado são
+      -- estados terminais: nenhuma transição posterior é uma correção
+      -- legítima do fluxo (mudar de ideia gera uma NOVA solicitação, não
+      -- reabre/flip-flopa o histórico de uma já decidida).
+      if old.status in ('aprovado', 'negado', 'cancelado') then
+        raise exception 'Solicitação já está em estado final (%) e não pode ser reaberta', old.status;
+      end if;
+
       if new.status = 'negado' and coalesce(length(trim(new.review_notes)), 0) = 0 then
         raise exception 'Motivo de recusa é obrigatório';
       end if;
@@ -301,7 +309,9 @@ create table if not exists public.hardware_assets (
   warranty_until date,
   notes text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint chk_hardware_assets_warranty_after_purchase
+    check (warranty_until is null or purchase_date is null or warranty_until >= purchase_date)
 );
 
 create index if not exists idx_hardware_assets_assigned_to on public.hardware_assets (assigned_to);
@@ -320,6 +330,8 @@ create table if not exists public.hardware_contracts (
   signed_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+create index if not exists idx_hardware_contracts_profile on public.hardware_contracts (profile_id);
 
 -- reference_month deve ser sempre truncado para o primeiro dia do mês pelo
 -- backend (date_trunc('month', now())); o CHECK abaixo garante essa
@@ -342,10 +354,50 @@ create table if not exists public.hardware_checkins (
   created_at timestamptz not null default now(),
   constraint uq_checkin_asset_month unique (asset_id, reference_month),
   constraint chk_checkin_reference_month_first_of_month
-    check (reference_month = date_trunc('month', reference_month)::date)
+    check (reference_month = date_trunc('month', reference_month)::date),
+  constraint chk_checkin_maintenance_details
+    check (not maintenance_requested or coalesce(length(trim(maintenance_details)), 0) > 0)
 );
 
 create index if not exists idx_hardware_checkins_profile on public.hardware_checkins (profile_id);
+
+-- reference_month nunca é aceito do client: uma chamada direta à API com
+-- Authorization de um colaborador comum (não passa por policy de update,
+-- só por esta trigger) não pode pré-preencher meses futuros nem
+-- "regularizar" retroativamente um mês não cumprido. No UPDATE, todo campo
+-- histórico é travado — só admin_notes/maintenance_resolved (via RLS,
+-- restrito a admin_ti) passam adiante.
+create or replace function public.fn_lock_hardware_checkin_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    -- America/Sao_Paulo, não UTC: precisa bater com lib/utils/reference-month.ts
+    -- (o negócio é brasileiro; truncar em UTC vira o mês ~3h antes da meia-noite
+    -- em horário de Brasília).
+    new.reference_month := date_trunc('month', now() at time zone 'America/Sao_Paulo')::date;
+  elsif tg_op = 'UPDATE' then
+    new.asset_id := old.asset_id;
+    new.profile_id := old.profile_id;
+    new.reference_month := old.reference_month;
+    new.photo_storage_path := old.photo_storage_path;
+    new.physical_condition := old.physical_condition;
+    new.condition_notes := old.condition_notes;
+    new.maintenance_requested := old.maintenance_requested;
+    new.maintenance_details := old.maintenance_details;
+    new.created_at := old.created_at;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_lock_hardware_checkin_fields on public.hardware_checkins;
+create trigger trg_lock_hardware_checkin_fields
+before insert or update on public.hardware_checkins
+for each row execute function public.fn_lock_hardware_checkin_fields();
 
 -- ============================================================================
 -- 5) MÓDULO 3 — TELEFONIA E LINHAS MÓVEIS
@@ -374,7 +426,7 @@ create index if not exists idx_mobile_lines_assigned_to on public.mobile_lines (
 
 create table if not exists public.knowledge_base_categories (
   id uuid primary key default gen_random_uuid(),
-  name text not null unique,
+  name text not null unique check (length(trim(name)) > 0),
   description text
 );
 
@@ -386,8 +438,8 @@ create table if not exists public.knowledge_base_categories (
 create table if not exists public.knowledge_base_articles (
   id uuid primary key default gen_random_uuid(),
   category_id uuid references public.knowledge_base_categories (id) on delete set null,
-  title text not null,
-  content text not null,
+  title text not null check (length(trim(title)) > 0),
+  content text not null check (length(trim(content)) > 0),
   created_by uuid references public.profiles (id) on delete set null,
   updated_by uuid references public.profiles (id) on delete set null,
   is_published boolean not null default true,
@@ -427,6 +479,10 @@ create index if not exists idx_audit_logs_changed_by on public.audit_logs (chang
 -- Estas funções rodam com o privilégio do dono (bypassando RLS internamente)
 -- e retornam apenas um valor escalar — não vazam dados de outras linhas.
 
+-- is_active = false (offboarding) revoga automaticamente qualquer papel
+-- especial destas três funções: um colaborador desligado nunca deveria
+-- continuar sendo tratado como admin_ti/rh/gestor pelo RLS só porque a
+-- sessão/senha ainda é válida no Supabase Auth.
 create or replace function public.current_role()
 returns public.user_role
 language sql
@@ -434,7 +490,7 @@ security definer
 stable
 set search_path = public
 as $$
-  select role from public.profiles where id = auth.uid();
+  select role from public.profiles where id = auth.uid() and is_active = true;
 $$;
 
 create or replace function public.is_admin()
@@ -445,7 +501,8 @@ stable
 set search_path = public
 as $$
   select exists (
-    select 1 from public.profiles where id = auth.uid() and role = 'admin_ti'
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin_ti' and is_active = true
   );
 $$;
 
@@ -457,7 +514,11 @@ stable
 set search_path = public
 as $$
   select exists (
-    select 1 from public.profiles where id = target_id and manager_id = auth.uid()
+    select 1 from public.profiles
+    where id = target_id and manager_id = auth.uid()
+      and exists (
+        select 1 from public.profiles m where m.id = auth.uid() and m.is_active = true
+      )
   );
 $$;
 
@@ -552,11 +613,22 @@ create policy access_requests_update_requester on public.access_requests
   using (requester_id = auth.uid() and status = 'pendente')
   with check (requester_id = auth.uid() and status = 'cancelado');
 
+-- requester_id <> auth.uid(): mesmo admin_ti não pode decidir a própria
+-- solicitação — a tela de aprovações já escondia isso na consulta (evita
+-- listar a própria solicitação na fila), mas isso sozinho não impedia uma
+-- chamada direta à API de aprovar/negar a própria solicitação.
 drop policy if exists access_requests_update_approver on public.access_requests;
 create policy access_requests_update_approver on public.access_requests
   for update to authenticated
-  using (public.is_admin() or public.is_manager_of(requester_id))
-  with check (public.is_admin() or public.is_manager_of(requester_id));
+  using (
+    status in ('pendente', 'em_analise')
+    and requester_id <> auth.uid()
+    and (public.is_admin() or public.is_manager_of(requester_id))
+  )
+  with check (
+    requester_id <> auth.uid()
+    and (public.is_admin() or public.is_manager_of(requester_id))
+  );
 
 -- Sem policy de DELETE: histórico de acessos nunca é apagado
 

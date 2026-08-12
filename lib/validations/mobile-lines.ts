@@ -8,10 +8,14 @@ export const mobileLineStatusSchema = z.enum(["ativa", "suspensa", "cancelada"])
 
 export const upsertMobileLineSchema = z
   .object({
+    // Normaliza removendo o "+" opcional: sem isso, "+5511999999999" e
+    // "5511999999999" são strings distintas para a UNIQUE do banco, então o
+    // mesmo número físico poderia ser cadastrado duas vezes.
     phone_number: z
       .string()
       .trim()
-      .regex(/^\+?[0-9]{10,15}$/, "Número de telefone inválido"),
+      .regex(/^\+?[0-9]{10,15}$/, "Número de telefone inválido")
+      .transform((value) => value.replace(/^\+/, "")),
     carrier: z.string().trim().min(1).max(80),
     plan_name: z.string().trim().min(1).max(120),
     monthly_cost: z.number().nonnegative().max(100000),

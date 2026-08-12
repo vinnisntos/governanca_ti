@@ -102,6 +102,10 @@ export async function submitCheckinAction(formData: FormData) {
 
   if (insertError) {
     console.error("[hardware-checkins] insert failed", { message: insertError.message });
+    // A foto já subiu ao Storage antes deste insert (linha 81-83) — sem isso,
+    // cada tentativa que falha (ex.: check-in duplicado do mês) deixa um
+    // arquivo órfão, sem nenhum hardware_checkins que o referencie.
+    await supabase.storage.from("hardware-checkin-photos").remove([storagePath]);
     const alreadyDone = insertError.message.includes("uq_checkin_asset_month");
     redirectWithError(
       PATH,
