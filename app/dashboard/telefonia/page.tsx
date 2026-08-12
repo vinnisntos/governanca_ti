@@ -1,17 +1,27 @@
-import Link from "next/link";
+import { Phone } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const LINE_TYPE_LABELS: Record<string, string> = {
   sim_fisico: "SIM físico",
   esim: "eSIM",
 };
 
-const STATUS_LABELS: Record<string, string> = {
+const STATUS_LABELS = {
   ativa: "Ativa",
   suspensa: "Suspensa",
   cancelada: "Cancelada",
-};
+} as const;
+
+const STATUS_TONE = {
+  ativa: "success",
+  suspensa: "warning",
+  cancelada: "neutral",
+} as const;
 
 type MobileLineRow = {
   id: string;
@@ -19,7 +29,7 @@ type MobileLineRow = {
   carrier: string;
   plan_name: string;
   line_type: string;
-  status: string;
+  status: keyof typeof STATUS_LABELS;
 };
 
 export default async function TelefoniaPage() {
@@ -43,37 +53,32 @@ export default async function TelefoniaPage() {
     .returns<MobileLineRow[]>();
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Minhas linhas telefônicas</h1>
-        <Link href="/dashboard" className="text-sm text-slate-500 underline">
-          Voltar
-        </Link>
-      </div>
+    <>
+      <PageHeader title="Minhas linhas telefônicas" />
 
       {!lines || lines.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          Nenhuma linha telefônica corporativa vinculada ao seu usuário.
-        </p>
+        <EmptyState
+          icon={Phone}
+          title="Nenhuma linha vinculada"
+          description="Nenhuma linha telefônica corporativa está vinculada ao seu usuário no momento."
+        />
       ) : (
         <ul className="space-y-3">
           {lines.map((line) => (
-            <li key={line.id} className="rounded-lg border border-slate-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
+            <li key={line.id}>
+              <Card className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-medium">{line.phone_number}</p>
+                  <p className="font-medium text-slate-900">{line.phone_number}</p>
                   <p className="text-sm text-slate-500">
                     {line.carrier} — {line.plan_name} ({LINE_TYPE_LABELS[line.line_type]})
                   </p>
                 </div>
-                <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
-                  {STATUS_LABELS[line.status]}
-                </span>
-              </div>
+                <Badge tone={STATUS_TONE[line.status]}>{STATUS_LABELS[line.status]}</Badge>
+              </Card>
             </li>
           ))}
         </ul>
       )}
-    </main>
+    </>
   );
 }

@@ -172,14 +172,33 @@ create table if not exists public.access_catalog (
 create table if not exists public.access_requests (
   id uuid primary key default gen_random_uuid(),
   requester_id uuid not null references public.profiles (id),
-  system_id uuid not null references public.access_catalog (id),
+  -- Nulo quando a solicitação é para um sistema fora do catálogo — ver
+  -- requested_system_name. Exatamente um dos dois deve estar preenchido
+  -- (access_requests_system_xor_check).
+  system_id uuid references public.access_catalog (id),
+  requested_system_name text,
   justification text not null check (length(trim(justification)) > 0),
   status public.access_request_status not null default 'pendente',
   reviewed_by uuid references public.profiles (id),
   review_notes text,
   decision_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint access_requests_system_xor_check check (
+    (system_id is not null and requested_system_name is null)
+    or (system_id is null and requested_system_name is not null and length(trim(requested_system_name)) > 0)
+  )
+);
+
+-- Idempotente para bancos onde a tabela já existia antes de system_id se
+-- tornar opcional e de requested_system_name/access_requests_system_xor_check
+-- serem introduzidos (suporte a pedidos de acesso a sistemas fora do catálogo).
+alter table public.access_requests alter column system_id drop not null;
+alter table public.access_requests add column if not exists requested_system_name text;
+alter table public.access_requests drop constraint if exists access_requests_system_xor_check;
+alter table public.access_requests add constraint access_requests_system_xor_check check (
+  (system_id is not null and requested_system_name is null)
+  or (system_id is null and requested_system_name is not null and length(trim(requested_system_name)) > 0)
 );
 
 create index if not exists idx_access_requests_requester on public.access_requests (requester_id);
@@ -196,6 +215,7 @@ as $$
 begin
   if new.requester_id is distinct from old.requester_id
      or new.system_id is distinct from old.system_id
+     or new.requested_system_name is distinct from old.requested_system_name
      or new.justification is distinct from old.justification
      or new.created_at is distinct from old.created_at then
     raise exception 'Campos imutáveis da solicitação não podem ser alterados';

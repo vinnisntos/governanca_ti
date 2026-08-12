@@ -4,16 +4,30 @@ import { z } from "zod";
 // .strict() rejeita qualquer campo além dos declarados (ex.: um client
 // tentando injetar "status: 'aprovado'" ou "reviewed_by" na criação).
 
+// "outro" é o valor sentinela usado pelo <select> quando o colaborador pede
+// acesso a um sistema que ainda não está no catálogo — nesse caso
+// requested_system_name é obrigatório e vira o texto livre da solicitação.
+export const OTHER_SYSTEM_VALUE = "outro";
+
 export const createAccessRequestSchema = z
   .object({
-    system_id: z.string().uuid("Sistema inválido"),
+    system_id: z.string().min(1, "Selecione um sistema"),
+    requested_system_name: z.string().trim().min(2).max(120).optional(),
     justification: z
       .string()
       .trim()
       .min(10, "Descreva a justificativa com mais detalhes")
       .max(2000),
   })
-  .strict();
+  .strict()
+  .refine(
+    (data) => data.system_id === OTHER_SYSTEM_VALUE || z.string().uuid().safeParse(data.system_id).success,
+    { message: "Sistema inválido", path: ["system_id"] }
+  )
+  .refine((data) => data.system_id !== OTHER_SYSTEM_VALUE || Boolean(data.requested_system_name), {
+    message: "Informe o nome do sistema desejado (mín. 2 caracteres)",
+    path: ["requested_system_name"],
+  });
 
 export type CreateAccessRequestInput = z.infer<typeof createAccessRequestSchema>;
 

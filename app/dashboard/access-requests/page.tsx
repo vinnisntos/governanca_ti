@@ -1,23 +1,33 @@
-import Link from "next/link";
+import { KeySquare, Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createAccessRequestAction, cancelAccessRequestAction } from "./actions";
+import { PageHeader } from "@/components/ui/page-header";
+import { FlashToast } from "@/components/ui/flash-toast";
+import { Section, Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
+import { Alert } from "@/components/ui/alert";
+import { RequestAccessForm } from "@/components/access/request-access-form";
 
-const STATUS_LABELS: Record<string, string> = {
+const STATUS_LABELS = {
   pendente: "Pendente",
   em_analise: "Em análise",
   aprovado: "Aprovado",
   negado: "Negado",
   cancelado: "Cancelado",
-};
+} as const;
 
-const STATUS_STYLES: Record<string, string> = {
-  pendente: "bg-amber-100 text-amber-800",
-  em_analise: "bg-blue-100 text-blue-800",
-  aprovado: "bg-green-100 text-green-800",
-  negado: "bg-red-100 text-red-800",
-  cancelado: "bg-slate-200 text-slate-600",
-};
+const STATUS_TONE = {
+  pendente: "warning",
+  em_analise: "info",
+  aprovado: "success",
+  negado: "danger",
+  cancelado: "neutral",
+} as const;
 
 type AccessRequestRow = {
   id: string;
@@ -27,6 +37,7 @@ type AccessRequestRow = {
   decision_at: string | null;
   created_at: string;
   access_catalog: { name: string } | null;
+  requested_system_name: string | null;
 };
 
 export default async function AccessRequestsPage({
@@ -54,7 +65,7 @@ export default async function AccessRequestsPage({
     supabase
       .from("access_requests")
       .select(
-        "id, justification, status, review_notes, decision_at, created_at, access_catalog(name)"
+        "id, justification, status, review_notes, decision_at, created_at, requested_system_name, access_catalog(name)"
       )
       .eq("requester_id", user.id)
       .order("created_at", { ascending: false })
@@ -62,131 +73,83 @@ export default async function AccessRequestsPage({
   ]);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Minhas solicitações de acesso</h1>
-        <Link href="/dashboard" className="text-sm text-slate-500 underline">
-          Voltar
-        </Link>
-      </div>
+    <>
+      <FlashToast success={successMessage} error={errorMessage} />
 
-      {errorMessage ? (
-        <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-          {errorMessage}
-        </p>
-      ) : null}
-      {successMessage ? (
-        <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-          {successMessage}
-        </p>
-      ) : null}
+      <PageHeader
+        title="Minhas solicitações de acesso"
+        description="Peça acesso a sistemas e acompanhe o status das suas solicitações."
+        actions={
+          <Modal
+            title="Nova solicitação de acesso"
+            trigger={
+              <Button variant="primary">
+                <Plus className="h-4 w-4" aria-hidden />
+                Nova solicitação
+              </Button>
+            }
+          >
+            <RequestAccessForm action={createAccessRequestAction} catalog={catalog ?? []} />
+          </Modal>
+        }
+      />
 
-      <section className="mb-8 rounded-lg border border-slate-200 bg-white p-5">
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">
-          Nova solicitação
-        </h2>
-
-        {!catalog || catalog.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            Nenhum sistema disponível no catálogo ainda. Peça ao admin de TI para
-            cadastrar em Catálogo de Acessos.
-          </p>
-        ) : (
-          <form action={createAccessRequestAction} className="space-y-3">
-            <div className="space-y-1">
-              <label htmlFor="system_id" className="text-sm font-medium">
-                Sistema
-              </label>
-              <select
-                id="system_id"
-                name="system_id"
-                required
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="">Selecione...</option>
-                {catalog.map((system) => (
-                  <option key={system.id} value={system.id}>
-                    {system.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label htmlFor="justification" className="text-sm font-medium">
-                Justificativa
-              </label>
-              <textarea
-                id="justification"
-                name="justification"
-                required
-                minLength={10}
-                rows={3}
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Explique por que você precisa deste acesso"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-            >
-              Enviar solicitação
-            </button>
-          </form>
-        )}
-      </section>
-
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">Histórico</h2>
-
+      <Section title="Histórico">
         {!requests || requests.length === 0 ? (
-          <p className="text-sm text-slate-500">Nenhuma solicitação registrada.</p>
+          <EmptyState
+            icon={KeySquare}
+            title="Nenhuma solicitação registrada"
+            description="Suas solicitações de acesso vão aparecer aqui assim que você criar a primeira."
+          />
         ) : (
           <ul className="space-y-3">
             {requests.map((request) => (
-              <li
-                key={request.id}
-                className="rounded-lg border border-slate-200 bg-white p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">
-                      {request.access_catalog?.name ?? "Sistema removido"}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {request.justification}
-                    </p>
+              <li key={request.id}>
+                <Card>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-slate-900">
+                        {request.access_catalog?.name ??
+                          request.requested_system_name ??
+                          "Sistema removido"}
+                        {!request.access_catalog && request.requested_system_name ? (
+                          <span className="ml-2 text-xs font-normal text-slate-400">
+                            (fora do catálogo)
+                          </span>
+                        ) : null}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">{request.justification}</p>
+                    </div>
+                    <Badge tone={STATUS_TONE[request.status]}>{STATUS_LABELS[request.status]}</Badge>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_STYLES[request.status]}`}
-                  >
-                    {STATUS_LABELS[request.status]}
-                  </span>
-                </div>
 
-                {request.status === "negado" && request.review_notes ? (
-                  <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-                    Motivo da recusa: {request.review_notes}
-                  </p>
-                ) : null}
+                  {request.status === "negado" && request.review_notes ? (
+                    <Alert tone="danger" className="mt-3">
+                      Motivo da recusa: {request.review_notes}
+                    </Alert>
+                  ) : null}
 
-                {request.status === "pendente" ? (
-                  <form action={cancelAccessRequestAction} className="mt-3">
-                    <input type="hidden" name="request_id" value={request.id} />
-                    <button
-                      type="submit"
-                      className="text-sm text-slate-500 underline"
-                    >
-                      Cancelar solicitação
-                    </button>
-                  </form>
-                ) : null}
+                  {request.status === "pendente" ? (
+                    <form action={cancelAccessRequestAction} className="mt-3">
+                      <input type="hidden" name="request_id" value={request.id} />
+                      <ConfirmSubmitButton
+                        variant="outline"
+                        size="sm"
+                        title="Cancelar esta solicitação?"
+                        description="Você poderá criar uma nova solicitação para o mesmo sistema depois, se precisar."
+                        confirmLabel="Cancelar solicitação"
+                        cancelLabel="Voltar"
+                      >
+                        Cancelar solicitação
+                      </ConfirmSubmitButton>
+                    </form>
+                  ) : null}
+                </Card>
               </li>
             ))}
           </ul>
         )}
-      </section>
-    </main>
+      </Section>
+    </>
   );
 }

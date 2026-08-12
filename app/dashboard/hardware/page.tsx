@@ -1,8 +1,21 @@
-import Link from "next/link";
+import { CheckCircle2, ClipboardEdit, Laptop2 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
 import { submitCheckinAction } from "./actions";
+import { PageHeader } from "@/components/ui/page-header";
+import { FlashToast } from "@/components/ui/flash-toast";
+import { Card } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { FileInput } from "@/components/ui/file-input";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button, LinkButton } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { Modal } from "@/components/ui/modal";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const CATEGORY_LABELS: Record<string, string> = {
   notebook: "Notebook",
@@ -95,148 +108,146 @@ export default async function HardwarePage({
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Meu(s) equipamento(s)</h1>
-        <Link href="/dashboard" className="text-sm text-slate-500 underline">
-          Voltar
-        </Link>
-      </div>
+    <>
+      <FlashToast success={successMessage} error={errorMessage} />
 
-      {errorMessage ? (
-        <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-          {errorMessage}
-        </p>
-      ) : null}
-      {successMessage ? (
-        <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-          {successMessage}
-        </p>
-      ) : null}
+      <PageHeader
+        title="Meu(s) equipamento(s)"
+        description="Envie o check-in mensal e acompanhe o histórico dos seus equipamentos."
+      />
 
       {latestContract ? (
-        <p className="mb-6 text-sm text-slate-600">
-          Termo de responsabilidade assinado em{" "}
-          {latestContract.signed_at ? new Date(latestContract.signed_at).toLocaleDateString("pt-BR") : "—"}
+        <Card className="mb-6 flex items-center justify-between gap-3">
+          <p className="text-sm text-slate-600">
+            Termo de responsabilidade assinado em{" "}
+            {latestContract.signed_at ? new Date(latestContract.signed_at).toLocaleDateString("pt-BR") : "—"}
+          </p>
           {contractUrl ? (
-            <>
-              {" "}
-              —{" "}
-              <a href={contractUrl} target="_blank" rel="noreferrer" className="underline">
-                ver PDF
-              </a>
-            </>
+            <LinkButton href={contractUrl} target="_blank" rel="noreferrer" variant="outline" size="sm">
+              Ver PDF
+            </LinkButton>
           ) : null}
-        </p>
+        </Card>
       ) : null}
 
       {!assets || assets.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          Nenhum equipamento vinculado ao seu usuário no momento.
-        </p>
+        <EmptyState
+          icon={Laptop2}
+          title="Nenhum equipamento vinculado"
+          description="Quando um equipamento for atribuído a você, ele vai aparecer aqui para o check-in mensal."
+        />
       ) : (
-        <ul className="space-y-6">
+        <ul className="space-y-4">
           {assets.map((asset) => {
             const alreadyDone = checkinsThisMonth.has(asset.id);
             const history = (checkins ?? []).filter((c) => c.asset_id === asset.id);
 
             return (
-              <li key={asset.id} className="rounded-lg border border-slate-200 bg-white p-5">
-                <p className="font-medium">
-                  {asset.asset_tag} — {CATEGORY_LABELS[asset.category]} {asset.model}
-                </p>
-
-                {alreadyDone ? (
-                  <p className="mt-2 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-                    Check-in deste mês já enviado. Obrigado!
-                  </p>
-                ) : (
-                  <form action={submitCheckinAction} className="mt-3 space-y-3" encType="multipart/form-data">
-                    <input type="hidden" name="asset_id" value={asset.id} />
-
-                    <div className="space-y-1">
-                      <label htmlFor={`photo-${asset.id}`} className="text-sm font-medium">
-                        Foto atual do equipamento
-                      </label>
-                      <input
-                        id={`photo-${asset.id}`}
-                        name="photo"
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        required
-                        className="block w-full text-sm"
-                      />
+              <li key={asset.id}>
+                <Card>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                        <Laptop2 className="h-4 w-4" aria-hidden />
+                      </div>
+                      <p className="font-medium text-slate-900">
+                        {asset.asset_tag} — {CATEGORY_LABELS[asset.category]} {asset.model}
+                      </p>
                     </div>
 
-                    <div className="space-y-1">
-                      <label htmlFor={`condition-${asset.id}`} className="text-sm font-medium">
-                        Estado físico
-                      </label>
-                      <select
-                        id={`condition-${asset.id}`}
-                        name="physical_condition"
-                        required
-                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    {alreadyDone ? (
+                      <Badge tone="success">
+                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" aria-hidden />
+                        Check-in enviado
+                      </Badge>
+                    ) : (
+                      <Modal
+                        title="Check-in mensal"
+                        description={`${asset.asset_tag} — ${CATEGORY_LABELS[asset.category]} ${asset.model}`}
+                        trigger={
+                          <Button variant="primary" size="sm">
+                            <ClipboardEdit className="h-4 w-4" aria-hidden />
+                            Fazer check-in deste mês
+                          </Button>
+                        }
                       >
-                        {Object.entries(CONDITION_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>{label}</option>
+                        <form
+                          action={submitCheckinAction}
+                          className="space-y-4"
+                          encType="multipart/form-data"
+                        >
+                          <input type="hidden" name="asset_id" value={asset.id} />
+
+                          <Field label="Foto atual do equipamento" htmlFor={`photo-${asset.id}`} required>
+                            <FileInput
+                              id={`photo-${asset.id}`}
+                              name="photo"
+                              accept="image/jpeg,image/png,image/webp"
+                              required
+                            />
+                          </Field>
+
+                          <Field label="Estado físico" htmlFor={`condition-${asset.id}`} required>
+                            <Select id={`condition-${asset.id}`} name="physical_condition" required>
+                              {Object.entries(CONDITION_LABELS).map(([value, label]) => (
+                                <option key={value} value={value}>
+                                  {label}
+                                </option>
+                              ))}
+                            </Select>
+                          </Field>
+
+                          <Field label="Observações" htmlFor={`notes-${asset.id}`} hint="Opcional">
+                            <Textarea id={`notes-${asset.id}`} name="condition_notes" rows={2} />
+                          </Field>
+
+                          <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+                            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                              <Checkbox name="maintenance_requested" />
+                              Solicitar manutenção/revisão
+                            </label>
+                            <Textarea
+                              name="maintenance_details"
+                              rows={2}
+                              placeholder="Descreva o problema, se marcou a opção acima"
+                            />
+                          </div>
+
+                          <div className="flex justify-end">
+                            <SubmitButton variant="primary" pendingLabel="Enviando...">
+                              Enviar check-in
+                            </SubmitButton>
+                          </div>
+                        </form>
+                      </Modal>
+                    )}
+                  </div>
+
+                  {history.length > 0 ? (
+                    <details className="mt-3 text-sm text-slate-500">
+                      <summary className="cursor-pointer font-medium text-slate-600 hover:text-slate-800">
+                        Histórico de check-ins ({history.length})
+                      </summary>
+                      <ul className="mt-2 space-y-1 border-l border-slate-200 pl-3">
+                        {history.map((c) => (
+                          <li key={c.id}>
+                            {new Date(c.created_at).toLocaleDateString("pt-BR")} — {CONDITION_LABELS[c.physical_condition]}
+                            {c.maintenance_requested
+                              ? c.maintenance_resolved
+                                ? " — manutenção resolvida"
+                                : " — manutenção pendente"
+                              : ""}
+                          </li>
                         ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label htmlFor={`notes-${asset.id}`} className="text-sm font-medium">
-                        Observações (opcional)
-                      </label>
-                      <textarea
-                        id={`notes-${asset.id}`}
-                        name="condition_notes"
-                        rows={2}
-                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" name="maintenance_requested" />
-                        Solicitar manutenção/revisão
-                      </label>
-                      <textarea
-                        name="maintenance_details"
-                        rows={2}
-                        placeholder="Descreva o problema, se marcou a opção acima"
-                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    </div>
-
-                    <button type="submit" className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">
-                      Enviar check-in
-                    </button>
-                  </form>
-                )}
-
-                {history.length > 0 ? (
-                  <details className="mt-3 text-sm text-slate-500">
-                    <summary className="cursor-pointer">Histórico de check-ins</summary>
-                    <ul className="mt-2 space-y-1">
-                      {history.map((c) => (
-                        <li key={c.id}>
-                          {new Date(c.created_at).toLocaleDateString("pt-BR")} — {CONDITION_LABELS[c.physical_condition]}
-                          {c.maintenance_requested
-                            ? c.maintenance_resolved
-                              ? " — manutenção resolvida"
-                              : " — manutenção pendente"
-                            : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                ) : null}
+                      </ul>
+                    </details>
+                  ) : null}
+                </Card>
               </li>
             );
           })}
         </ul>
       )}
-    </main>
+    </>
   );
 }

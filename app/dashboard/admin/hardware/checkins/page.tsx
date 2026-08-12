@@ -1,7 +1,14 @@
-import Link from "next/link";
+import { Wrench } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveMaintenanceAction } from "./actions";
+import { PageHeader } from "@/components/ui/page-header";
+import { FlashToast } from "@/components/ui/flash-toast";
+import { Card, Section } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const CONDITION_LABELS: Record<string, string> = {
   otimo: "Ótimo",
@@ -60,94 +67,80 @@ export default async function HardwareMaintenanceQueuePage({
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Fila de manutenção</h1>
-        <Link href="/dashboard/admin/hardware" className="text-sm text-slate-500 underline">
-          Voltar ao inventário
-        </Link>
-      </div>
+    <>
+      <FlashToast success={successMessage} error={errorMessage} />
 
-      {errorMessage ? (
-        <p role="alert" className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-          {errorMessage}
-        </p>
-      ) : null}
-      {successMessage ? (
-        <p className="mb-4 rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-          {successMessage}
-        </p>
-      ) : null}
+      <PageHeader
+        title="Fila de manutenção"
+        back={{ href: "/dashboard/admin/hardware", label: "Inventário de hardware" }}
+      />
 
-      {!checkins || checkins.length === 0 ? (
-        <p className="text-sm text-slate-500">Nenhuma solicitação de manutenção registrada.</p>
-      ) : (
-        <ul className="space-y-4">
-          {checkins.map((checkin) => (
-            <li key={checkin.id} className="rounded-lg border border-slate-200 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium">
-                    {checkin.hardware_assets?.asset_tag} — {checkin.hardware_assets?.model}
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    {checkin.profiles?.full_name} ({checkin.profiles?.email})
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    Estado reportado: {CONDITION_LABELS[checkin.physical_condition]}
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    checkin.maintenance_resolved
-                      ? "bg-green-100 text-green-800"
-                      : "bg-amber-100 text-amber-800"
-                  }`}
-                >
-                  {checkin.maintenance_resolved ? "Resolvido" : "Pendente"}
-                </span>
-              </div>
+      <Section>
+        {!checkins || checkins.length === 0 ? (
+          <EmptyState icon={Wrench} title="Nenhuma solicitação de manutenção registrada" />
+        ) : (
+          <ul className="space-y-4">
+            {checkins.map((checkin) => (
+              <li key={checkin.id}>
+                <Card>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-slate-900">
+                        {checkin.hardware_assets?.asset_tag} — {checkin.hardware_assets?.model}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {checkin.profiles?.full_name} ({checkin.profiles?.email})
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        Estado reportado: {CONDITION_LABELS[checkin.physical_condition]}
+                      </p>
+                    </div>
+                    <Badge tone={checkin.maintenance_resolved ? "success" : "warning"}>
+                      {checkin.maintenance_resolved ? "Resolvido" : "Pendente"}
+                    </Badge>
+                  </div>
 
-              <p className="mt-2 text-sm text-slate-700">{checkin.maintenance_details}</p>
-              {checkin.condition_notes ? (
-                <p className="mt-1 text-sm text-slate-500">Obs.: {checkin.condition_notes}</p>
-              ) : null}
+                  <p className="mt-2 text-sm text-slate-700">{checkin.maintenance_details}</p>
+                  {checkin.condition_notes ? (
+                    <p className="mt-1 text-sm text-slate-500">Obs.: {checkin.condition_notes}</p>
+                  ) : null}
 
-              {photoUrlById.has(checkin.id) ? (
-                <a
-                  href={photoUrlById.get(checkin.id)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 inline-block text-sm underline"
-                >
-                  Ver foto do check-in
-                </a>
-              ) : null}
+                  {photoUrlById.has(checkin.id) ? (
+                    <a
+                      href={photoUrlById.get(checkin.id)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-block text-sm text-primary-700 underline-offset-2 hover:underline"
+                    >
+                      Ver foto do check-in
+                    </a>
+                  ) : null}
 
-              {checkin.maintenance_resolved ? (
-                checkin.admin_notes ? (
-                  <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                    Nota do admin: {checkin.admin_notes}
-                  </p>
-                ) : null
-              ) : (
-                <form action={resolveMaintenanceAction} className="mt-3 space-y-2">
-                  <input type="hidden" name="checkin_id" value={checkin.id} />
-                  <textarea
-                    name="admin_notes"
-                    rows={2}
-                    placeholder="Nota sobre a resolução (opcional)"
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-                  />
-                  <button type="submit" className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white">
-                    Marcar como resolvido
-                  </button>
-                </form>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+                  {checkin.maintenance_resolved ? (
+                    checkin.admin_notes ? (
+                      <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                        Nota do admin: {checkin.admin_notes}
+                      </p>
+                    ) : null
+                  ) : (
+                    <form action={resolveMaintenanceAction} className="mt-3 space-y-2">
+                      <input type="hidden" name="checkin_id" value={checkin.id} />
+                      <Textarea
+                        name="admin_notes"
+                        rows={2}
+                        placeholder="Nota sobre a resolução (opcional)"
+                      />
+                      <SubmitButton variant="primary" size="sm" pendingLabel="Salvando...">
+                        Marcar como resolvido
+                      </SubmitButton>
+                    </form>
+                  )}
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+    </>
   );
 }

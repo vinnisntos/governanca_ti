@@ -6,6 +6,7 @@ import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
 import {
   createAccessRequestSchema,
   cancelAccessRequestSchema,
+  OTHER_SYSTEM_VALUE,
 } from "@/lib/validations/access-requests";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
@@ -23,11 +24,15 @@ export async function createAccessRequestAction(formData: FormData) {
 
   const parsed = createAccessRequestSchema.safeParse({
     system_id: formData.get("system_id"),
+    requested_system_name: formData.get("requested_system_name") || undefined,
     justification: formData.get("justification"),
   });
 
   if (!parsed.success) {
-    redirectWithError(PATH, "Selecione um sistema e descreva a justificativa (mín. 10 caracteres).");
+    redirectWithError(
+      PATH,
+      "Selecione um sistema (ou informe o nome) e descreva a justificativa (mín. 10 caracteres)."
+    );
   }
 
   const supabase = await createSupabaseServerClient();
@@ -39,9 +44,12 @@ export async function createAccessRequestAction(formData: FormData) {
     redirect("/login");
   }
 
+  const isOtherSystem = parsed.data.system_id === OTHER_SYSTEM_VALUE;
+
   const { error } = await supabase.from("access_requests").insert({
     requester_id: user.id,
-    system_id: parsed.data.system_id,
+    system_id: isOtherSystem ? null : parsed.data.system_id,
+    requested_system_name: isOtherSystem ? parsed.data.requested_system_name : null,
     justification: parsed.data.justification,
   });
 
