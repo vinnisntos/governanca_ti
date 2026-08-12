@@ -210,7 +210,11 @@ before update on public.access_requests
 for each row execute function public.fn_protect_access_request_fields();
 
 -- Exige justificativa de recusa e carimba automaticamente quem/quando decidiu
--- (reviewed_by/decision_at nunca são informados pelo client).
+-- (reviewed_by/decision_at/review_notes nunca são aceitos do client: esta
+-- trigger dispara em INSERT e em UPDATE precisamente para que não haja
+-- nenhuma janela — nem a criação da solicitação, nem o cancelamento pelo
+-- próprio solicitante — em que esses campos possam ser forjados via uma
+-- chamada direta à API REST do PostgREST, contornando a UI do Next.js).
 create or replace function public.fn_validate_access_request_transition()
 returns trigger
 language plpgsql
@@ -218,14 +222,33 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.status is distinct from old.status then
-    if new.status = 'negado' and coalesce(length(trim(new.review_notes)), 0) = 0 then
-      raise exception 'Motivo de recusa é obrigatório';
-    end if;
+  if tg_op = 'INSERT' then
+    new.reviewed_by := null;
+    new.review_notes := null;
+    new.decision_at := null;
+  elsif tg_op = 'UPDATE' then
+    if new.status is distinct from old.status then
+      if new.status = 'negado' and coalesce(length(trim(new.review_notes)), 0) = 0 then
+        raise exception 'Motivo de recusa é obrigatório';
+      end if;
 
-    if new.status in ('aprovado', 'negado', 'em_analise') then
-      new.reviewed_by := auth.uid();
-      new.decision_at := case when new.status in ('aprovado','negado') then now() else null end;
+      if new.status in ('aprovado', 'negado', 'em_analise') then
+        new.reviewed_by := auth.uid();
+        new.decision_at := case when new.status in ('aprovado','negado') then now() else null end;
+      else
+        -- Transição que não é uma decisão formal (ex.: cancelamento pelo
+        -- próprio solicitante): preserva o que já estava gravado, nunca o
+        -- valor que o client tentou enviar no mesmo payload do UPDATE.
+        new.reviewed_by := old.reviewed_by;
+        new.review_notes := old.review_notes;
+        new.decision_at := old.decision_at;
+      end if;
+    else
+      -- Sem mudança de status: qualquer tentativa de alterar
+      -- reviewed_by/review_notes/decision_at sem uma transição real é ignorada.
+      new.reviewed_by := old.reviewed_by;
+      new.review_notes := old.review_notes;
+      new.decision_at := old.decision_at;
     end if;
   end if;
 
@@ -236,7 +259,7 @@ $$;
 
 drop trigger if exists trg_validate_access_request_transition on public.access_requests;
 create trigger trg_validate_access_request_transition
-before update on public.access_requests
+before insert or update on public.access_requests
 for each row execute function public.fn_validate_access_request_transition();
 
 -- ============================================================================
@@ -250,7 +273,10 @@ create table if not exists public.hardware_assets (
   model text not null,
   serial_number text not null unique,
   status public.hardware_status not null default 'em_estoque',
-  assigned_to uuid references public.profiles (id),
+  -- ON DELETE SET NULL, pelo mesmo motivo do profiles.manager_id (LGPD): não
+  -- pode ser impossível excluir um colaborador só porque um ativo já esteve
+  -- atribuído a ele.
+  assigned_to uuid references public.profiles (id) on delete set null,
   purchase_date date,
   warranty_until date,
   notes text,
@@ -260,9 +286,15 @@ create table if not exists public.hardware_assets (
 
 create index if not exists idx_hardware_assets_assigned_to on public.hardware_assets (assigned_to);
 
+-- asset_id é RESTRICT (não CASCADE): hardware_status já modela retirada de
+-- circulação via 'baixado'/'extraviado' — um ativo nunca deveria ser
+-- excluído de fato, só ter o status alterado. RESTRICT impede que um DELETE
+-- em hardware_assets (acidental ou por um admin comprometido) arraste
+-- silenciosamente contratos assinados e histórico de check-in, que são
+-- registros de auditoria.
 create table if not exists public.hardware_contracts (
   id uuid primary key default gen_random_uuid(),
-  asset_id uuid not null references public.hardware_assets (id) on delete cascade,
+  asset_id uuid not null references public.hardware_assets (id) on delete restrict,
   profile_id uuid not null references public.profiles (id),
   storage_path text not null,
   signed_at timestamptz,
@@ -270,11 +302,14 @@ create table if not exists public.hardware_contracts (
 );
 
 -- reference_month deve ser sempre truncado para o primeiro dia do mês pelo
--- backend (date_trunc('month', now())); a constraint abaixo é a garantia real
--- de "1 check-in por máquina/mês", independente do que o Server Action fizer.
+-- backend (date_trunc('month', now())); o CHECK abaixo garante essa
+-- invariante também no banco (não só no Server Action), e a UNIQUE
+-- (asset_id, reference_month) é a garantia real de "1 check-in por
+-- máquina/mês" — juntos, impedem que uma chamada direta à API insira
+-- reference_month = '2026-08-15' e depois '2026-08-31' para o mesmo ativo.
 create table if not exists public.hardware_checkins (
   id uuid primary key default gen_random_uuid(),
-  asset_id uuid not null references public.hardware_assets (id) on delete cascade,
+  asset_id uuid not null references public.hardware_assets (id) on delete restrict,
   profile_id uuid not null references public.profiles (id),
   reference_month date not null,
   photo_storage_path text not null,
@@ -285,7 +320,9 @@ create table if not exists public.hardware_checkins (
   maintenance_resolved boolean not null default false,
   admin_notes text,
   created_at timestamptz not null default now(),
-  constraint uq_checkin_asset_month unique (asset_id, reference_month)
+  constraint uq_checkin_asset_month unique (asset_id, reference_month),
+  constraint chk_checkin_reference_month_first_of_month
+    check (reference_month = date_trunc('month', reference_month)::date)
 );
 
 create index if not exists idx_hardware_checkins_profile on public.hardware_checkins (profile_id);
@@ -302,7 +339,8 @@ create table if not exists public.mobile_lines (
   monthly_cost numeric(10,2) not null check (monthly_cost >= 0),
   line_type public.line_type not null,
   status public.mobile_line_status not null default 'ativa',
-  assigned_to uuid references public.profiles (id),
+  -- ON DELETE SET NULL, mesmo motivo do hardware_assets.assigned_to acima.
+  assigned_to uuid references public.profiles (id) on delete set null,
   department_id uuid references public.departments (id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -320,13 +358,18 @@ create table if not exists public.knowledge_base_categories (
   description text
 );
 
+-- category_id/created_by/updated_by são ON DELETE SET NULL: uma categoria
+-- pode ser removida sem que isso bloqueie a exclusão (categoria fica "sem
+-- categoria" nos artigos existentes), e excluir o perfil de um autor (ex.:
+-- LGPD) não pode ficar impedido só porque ele escreveu um artigo antigo —
+-- mesmo raciocínio já aplicado a profiles.manager_id.
 create table if not exists public.knowledge_base_articles (
   id uuid primary key default gen_random_uuid(),
-  category_id uuid references public.knowledge_base_categories (id),
+  category_id uuid references public.knowledge_base_categories (id) on delete set null,
   title text not null,
   content text not null,
-  created_by uuid not null references public.profiles (id),
-  updated_by uuid references public.profiles (id),
+  created_by uuid references public.profiles (id) on delete set null,
+  updated_by uuid references public.profiles (id) on delete set null,
   is_published boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -343,7 +386,11 @@ create table if not exists public.audit_logs (
   action public.audit_action not null,
   old_data jsonb,
   new_data jsonb,
-  changed_by uuid references public.profiles (id),
+  -- ON DELETE SET NULL: praticamente todo usuário ativo tem ao menos uma
+  -- linha em audit_logs; sem isso, excluir qualquer um deles de auth.users
+  -- falharia por integridade referencial, mesmo a linha de auditoria em si
+  -- nunca sendo apagada (só perde a referência a quem a gerou).
+  changed_by uuid references public.profiles (id) on delete set null,
   client_ip inet,
   created_at timestamptz not null default now()
 );
@@ -739,4 +786,24 @@ for each row execute function public.fn_audit_trigger();
 drop trigger if exists trg_audit_knowledge_base_articles on public.knowledge_base_articles;
 create trigger trg_audit_knowledge_base_articles
 after insert or update or delete on public.knowledge_base_articles
+for each row execute function public.fn_audit_trigger();
+
+-- As três tabelas abaixo também recebem escrita restrita a admin_ti (e RH,
+-- no caso de knowledge_base_categories) e por isso também devem deixar
+-- rastro em audit_logs — alterações de custo mensal no catálogo de acessos
+-- (usado no Dashboard Executivo) ou remoção de departamentos/categorias não
+-- podem ficar sem autoria registrada.
+drop trigger if exists trg_audit_departments on public.departments;
+create trigger trg_audit_departments
+after insert or update or delete on public.departments
+for each row execute function public.fn_audit_trigger();
+
+drop trigger if exists trg_audit_access_catalog on public.access_catalog;
+create trigger trg_audit_access_catalog
+after insert or update or delete on public.access_catalog
+for each row execute function public.fn_audit_trigger();
+
+drop trigger if exists trg_audit_knowledge_base_categories on public.knowledge_base_categories;
+create trigger trg_audit_knowledge_base_categories
+after insert or update or delete on public.knowledge_base_categories
 for each row execute function public.fn_audit_trigger();

@@ -1,8 +1,8 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
+import { requireRole } from "@/lib/utils/require-role";
 import {
   upsertHardwareAssetSchema,
   updateHardwareAssetStatusSchema,
@@ -13,8 +13,8 @@ import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redir
 
 // Arquitetura alinhada com as diretrizes do ADR Master.
 // Autorização real é a policy hardware_assets_write_admin / hardware_contracts_write_admin
-// (RLS); a página só exibe estes formulários para quem já é admin_ti como
-// atalho de UX.
+// (RLS); requireRole() é defesa em profundidade para dar uma mensagem clara
+// em vez de depender só do efeito colateral silencioso do RLS.
 
 const PATH = "/dashboard/admin/hardware";
 
@@ -25,6 +25,11 @@ function emptyToNull(value: FormDataEntryValue | null) {
 
 export async function createHardwareAssetAction(formData: FormData) {
   await assertTrustedOrigin();
+
+  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  if (!authorized) {
+    redirectWithError(PATH, "Você não tem permissão para esta ação.");
+  }
 
   const parsed = upsertHardwareAssetSchema.safeParse({
     asset_tag: formData.get("asset_tag"),
@@ -42,7 +47,6 @@ export async function createHardwareAssetAction(formData: FormData) {
     redirectWithError(PATH, "Preencha patrimônio, categoria, modelo e número de série.");
   }
 
-  const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("hardware_assets").insert(parsed.data);
 
   if (error) {
@@ -56,6 +60,11 @@ export async function createHardwareAssetAction(formData: FormData) {
 export async function updateHardwareAssetStatusAction(formData: FormData) {
   await assertTrustedOrigin();
 
+  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  if (!authorized) {
+    redirectWithError(PATH, "Você não tem permissão para esta ação.");
+  }
+
   const parsed = updateHardwareAssetStatusSchema.safeParse({
     asset_id: formData.get("asset_id"),
     status: formData.get("status"),
@@ -66,15 +75,19 @@ export async function updateHardwareAssetStatusAction(formData: FormData) {
     redirectWithError(PATH, "Dados inválidos para atualizar o ativo.");
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("hardware_assets")
     .update({ status: parsed.data.status, assigned_to: parsed.data.assigned_to })
-    .eq("id", parsed.data.asset_id);
+    .eq("id", parsed.data.asset_id)
+    .select("id");
 
   if (error) {
     console.error("[hardware-assets] update failed", { message: error.message });
     redirectWithError(PATH, "Não foi possível atualizar o ativo.");
+  }
+
+  if (!updated || updated.length === 0) {
+    redirectWithError(PATH, "Ativo não encontrado ou você não tem permissão para alterá-lo.");
   }
 
   redirectWithSuccess(PATH, "Ativo atualizado.");
@@ -82,6 +95,11 @@ export async function updateHardwareAssetStatusAction(formData: FormData) {
 
 export async function uploadHardwareContractAction(formData: FormData) {
   await assertTrustedOrigin();
+
+  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  if (!authorized) {
+    redirectWithError(PATH, "Você não tem permissão para esta ação.");
+  }
 
   const parsed = uploadHardwareContractSchema.safeParse({
     asset_id: formData.get("asset_id"),
@@ -108,8 +126,6 @@ export async function uploadHardwareContractAction(formData: FormData) {
   if (file.size > contractPdfConstraints.maxSizeBytes) {
     redirectWithError(PATH, "Arquivo muito grande (máximo 10MB).");
   }
-
-  const supabase = await createSupabaseServerClient();
 
   // Caminho SEMPRE montado no servidor a partir do profile_id do responsável
   // e de um nome aleatório — nunca a partir de um valor vindo do client —

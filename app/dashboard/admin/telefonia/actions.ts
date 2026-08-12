@@ -1,13 +1,14 @@
 "use server";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
+import { requireRole } from "@/lib/utils/require-role";
 import { upsertMobileLineSchema, updateMobileLineSchema } from "@/lib/validations/mobile-lines";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
 // Arquitetura alinhada com as diretrizes do ADR Master.
-// Autorização real é a policy mobile_lines_write_admin (RLS); a página só
-// exibe estes formulários para quem já é admin_ti como atalho de UX.
+// Autorização real é a policy mobile_lines_write_admin (RLS); requireRole()
+// é defesa em profundidade para dar uma mensagem clara em vez de depender só
+// do efeito colateral silencioso do RLS.
 
 const PATH = "/dashboard/admin/telefonia";
 
@@ -18,6 +19,11 @@ function emptyToNull(value: FormDataEntryValue | null) {
 
 export async function createMobileLineAction(formData: FormData) {
   await assertTrustedOrigin();
+
+  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  if (!authorized) {
+    redirectWithError(PATH, "Você não tem permissão para esta ação.");
+  }
 
   const parsed = upsertMobileLineSchema.safeParse({
     phone_number: formData.get("phone_number"),
@@ -34,7 +40,6 @@ export async function createMobileLineAction(formData: FormData) {
     redirectWithError(PATH, "Preencha número, operadora, plano, custo e tipo corretamente.");
   }
 
-  const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("mobile_lines").insert(parsed.data);
 
   if (error) {
@@ -47,6 +52,11 @@ export async function createMobileLineAction(formData: FormData) {
 
 export async function updateMobileLineAction(formData: FormData) {
   await assertTrustedOrigin();
+
+  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  if (!authorized) {
+    redirectWithError(PATH, "Você não tem permissão para esta ação.");
+  }
 
   const parsed = updateMobileLineSchema.safeParse({
     id: formData.get("id"),
@@ -64,12 +74,19 @@ export async function updateMobileLineAction(formData: FormData) {
   }
 
   const { id, ...updateFields } = parsed.data;
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("mobile_lines").update(updateFields).eq("id", id);
+  const { data: updated, error } = await supabase
+    .from("mobile_lines")
+    .update(updateFields)
+    .eq("id", id)
+    .select("id");
 
   if (error) {
     console.error("[mobile-lines] update failed", { message: error.message });
     redirectWithError(PATH, "Não foi possível atualizar a linha.");
+  }
+
+  if (!updated || updated.length === 0) {
+    redirectWithError(PATH, "Linha não encontrada ou você não tem permissão para alterá-la.");
   }
 
   redirectWithSuccess(PATH, "Linha atualizada.");

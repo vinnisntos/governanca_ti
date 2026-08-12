@@ -9,6 +9,7 @@ import {
   checkinPhotoConstraints,
 } from "@/lib/validations/hardware";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
+import { sniffImageMimeType } from "@/lib/utils/sniff-image-type";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
 // Arquitetura alinhada com as diretrizes do ADR Master.
@@ -35,16 +36,16 @@ export async function submitCheckinAction(formData: FormData) {
     redirectWithError(PATH, "Envie uma foto atual do equipamento.");
   }
 
-  if (
-    !checkinPhotoConstraints.allowedMimeTypes.includes(
-      file.type as (typeof checkinPhotoConstraints.allowedMimeTypes)[number]
-    )
-  ) {
-    redirectWithError(PATH, "A foto deve ser JPEG, PNG ou WebP.");
-  }
-
   if (file.size > checkinPhotoConstraints.maxSizeBytes) {
     redirectWithError(PATH, "Foto muito grande (máximo 8MB).");
+  }
+
+  // Não confiamos em file.type (metadata informada pelo client, facilmente
+  // falsificável) — inspecionamos os bytes reais do arquivo para confirmar
+  // que é de fato uma imagem de um dos formatos aceitos.
+  const sniffedType = await sniffImageMimeType(file);
+  if (!sniffedType || !checkinPhotoConstraints.allowedMimeTypes.includes(sniffedType)) {
+    redirectWithError(PATH, "A foto deve ser JPEG, PNG ou WebP.");
   }
 
   const supabase = await createSupabaseServerClient();
@@ -70,7 +71,8 @@ export async function submitCheckinAction(formData: FormData) {
     redirectWithError(PATH, "Este equipamento não está vinculado a você.");
   }
 
-  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+  const extension =
+    sniffedType === "image/png" ? "png" : sniffedType === "image/webp" ? "webp" : "jpg";
   // Caminho SEMPRE montado no servidor a partir do id do usuário logado e de
   // um nome aleatório — nunca a partir de um valor vindo do client — para
   // impedir path traversal e colisão entre usuários.
@@ -78,7 +80,7 @@ export async function submitCheckinAction(formData: FormData) {
 
   const { error: uploadError } = await supabase.storage
     .from("hardware-checkin-photos")
-    .upload(storagePath, file, { contentType: file.type, upsert: false });
+    .upload(storagePath, file, { contentType: sniffedType, upsert: false });
 
   if (uploadError) {
     console.error("[hardware-checkins] upload failed", { message: uploadError.message });

@@ -1,8 +1,8 @@
 "use server";
 
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { z } from "zod";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
+import { requireRole } from "@/lib/utils/require-role";
 import {
   upsertKnowledgeBaseArticleSchema,
   upsertKnowledgeBaseCategorySchema,
@@ -11,10 +11,11 @@ import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redir
 
 // Arquitetura alinhada com as diretrizes do ADR Master.
 // Autorização real é a policy kb_articles_write / kb_categories_write
-// (RLS: admin_ti OU rh). As páginas só exibem estes formulários para quem
-// já tem um desses papéis, como atalho de UX.
+// (RLS: admin_ti OU rh); requireRole() é defesa em profundidade para dar uma
+// mensagem clara em vez de depender só do efeito colateral silencioso do RLS.
 
 const LIST_PATH = "/dashboard/wiki";
+const WRITE_ROLES = ["admin_ti", "rh"] as const;
 
 function emptyToNull(value: FormDataEntryValue | null) {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -23,6 +24,11 @@ function emptyToNull(value: FormDataEntryValue | null) {
 
 export async function createCategoryAction(formData: FormData) {
   await assertTrustedOrigin();
+
+  const { authorized, supabase } = await requireRole([...WRITE_ROLES]);
+  if (!authorized) {
+    redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
+  }
 
   const parsed = upsertKnowledgeBaseCategorySchema.safeParse({
     name: formData.get("name"),
@@ -33,7 +39,6 @@ export async function createCategoryAction(formData: FormData) {
     redirectWithError(LIST_PATH, "Informe o nome da categoria (mín. 2 caracteres).");
   }
 
-  const supabase = await createSupabaseServerClient();
   const { error } = await supabase.from("knowledge_base_categories").insert(parsed.data);
 
   if (error) {
@@ -47,6 +52,11 @@ export async function createCategoryAction(formData: FormData) {
 export async function createArticleAction(formData: FormData) {
   await assertTrustedOrigin();
 
+  const { authorized, supabase, user } = await requireRole([...WRITE_ROLES]);
+  if (!authorized || !user) {
+    redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
+  }
+
   const parsed = upsertKnowledgeBaseArticleSchema.safeParse({
     category_id: emptyToNull(formData.get("category_id")),
     title: formData.get("title"),
@@ -56,15 +66,6 @@ export async function createArticleAction(formData: FormData) {
 
   if (!parsed.success) {
     redirectWithError(LIST_PATH, "Preencha título e conteúdo do artigo.");
-  }
-
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
   }
 
   const { error } = await supabase.from("knowledge_base_articles").insert({
@@ -84,8 +85,15 @@ export async function updateArticleAction(formData: FormData) {
   await assertTrustedOrigin();
 
   const articleId = formData.get("article_id");
-  if (typeof articleId !== "string" || articleId.length === 0) {
+  if (!z.string().uuid().safeParse(articleId).success) {
     redirectWithError(LIST_PATH, "Artigo inválido.");
+  }
+
+  const articlePath = `${LIST_PATH}/${articleId}`;
+
+  const { authorized, supabase, user } = await requireRole([...WRITE_ROLES]);
+  if (!authorized || !user) {
+    redirectWithError(articlePath, "Você não tem permissão para esta ação.");
   }
 
   const parsed = upsertKnowledgeBaseArticleSchema.safeParse({
@@ -95,29 +103,23 @@ export async function updateArticleAction(formData: FormData) {
     is_published: formData.get("is_published") === "on",
   });
 
-  const articlePath = `${LIST_PATH}/${articleId}`;
-
   if (!parsed.success) {
     redirectWithError(articlePath, "Preencha título e conteúdo do artigo.");
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("knowledge_base_articles")
     .update({ ...parsed.data, updated_by: user.id })
-    .eq("id", articleId as string);
+    .eq("id", articleId as string)
+    .select("id");
 
   if (error) {
     console.error("[wiki] update article failed", { message: error.message });
     redirectWithError(articlePath, "Não foi possível salvar as alterações.");
+  }
+
+  if (!updated || updated.length === 0) {
+    redirectWithError(articlePath, "Artigo não encontrado ou você não tem permissão para alterá-lo.");
   }
 
   redirectWithSuccess(articlePath, "Artigo atualizado.");
@@ -129,27 +131,28 @@ export async function togglePublishArticleAction(formData: FormData) {
   const articleId = formData.get("article_id");
   const nextPublished = formData.get("next_published") === "true";
 
-  if (typeof articleId !== "string" || articleId.length === 0) {
+  if (!z.string().uuid().safeParse(articleId).success) {
     redirectWithError(LIST_PATH, "Artigo inválido.");
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
+  const { authorized, supabase, user } = await requireRole([...WRITE_ROLES]);
+  if (!authorized || !user) {
+    redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
   }
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("knowledge_base_articles")
     .update({ is_published: nextPublished, updated_by: user.id })
-    .eq("id", articleId as string);
+    .eq("id", articleId as string)
+    .select("id");
 
   if (error) {
     console.error("[wiki] toggle publish failed", { message: error.message });
     redirectWithError(LIST_PATH, "Não foi possível atualizar a publicação.");
+  }
+
+  if (!updated || updated.length === 0) {
+    redirectWithError(LIST_PATH, "Artigo não encontrado ou você não tem permissão para alterá-lo.");
   }
 
   redirectWithSuccess(LIST_PATH, nextPublished ? "Artigo publicado." : "Artigo despublicado.");

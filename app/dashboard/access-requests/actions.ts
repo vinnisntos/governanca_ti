@@ -67,16 +67,27 @@ export async function cancelAccessRequestAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
 
   // A policy access_requests_update_requester só permite esta operação
-  // enquanto status = 'pendente' e o solicitante é o próprio usuário — não
-  // há necessidade de checar isso aqui de novo, o RLS garante.
-  const { error } = await supabase
+  // enquanto status = 'pendente' e o solicitante é o próprio usuário. Sem
+  // .select(), um UPDATE bloqueado pelo RLS (ex.: tentativa de cancelar a
+  // solicitação de outro usuário) afeta 0 linhas e devolve { error: null } —
+  // não um erro — então checamos explicitamente se algo foi de fato alterado
+  // em vez de assumir sucesso.
+  const { data: updated, error } = await supabase
     .from("access_requests")
     .update({ status: "cancelado" })
-    .eq("id", parsed.data.request_id);
+    .eq("id", parsed.data.request_id)
+    .select("id");
 
   if (error) {
     console.error("[access-requests] cancel failed", { message: error.message });
     redirectWithError(PATH, "Não foi possível cancelar a solicitação.");
+  }
+
+  if (!updated || updated.length === 0) {
+    redirectWithError(
+      PATH,
+      "Solicitação não encontrada ou você não tem permissão para cancelá-la."
+    );
   }
 
   redirectWithSuccess(PATH, "Solicitação cancelada.");
