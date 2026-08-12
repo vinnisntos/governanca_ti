@@ -42,16 +42,6 @@ O **Portal de Governança de TI** centraliza isso tudo em um painel único, com 
 
 **Next.js 14** (App Router, Server Actions) · **TypeScript** · **Supabase** (Postgres, Auth, Storage) · **Tailwind CSS** · **Zod** para validação server-side.
 
-## 🏁 Rodando localmente
-
-```bash
-npm install
-cp .env.example .env.local   # preencha com as credenciais do seu projeto Supabase
-npm run dev
-```
-
-Passo a passo completo (migrations, criação do primeiro admin, etc.) em [`SETUP.md`](./SETUP.md).
-
 ---
 
 <div align="center">
