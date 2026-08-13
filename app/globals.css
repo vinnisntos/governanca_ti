@@ -1,3 +1,20 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* O Edge (::-ms-reveal) e o Chrome (::-webkit-credentials-auto-fill-button)
+   desenham um ícone nativo dentro do <input type="password">, no mesmo
+   canto onde ficam botões customizados de mostrar/ocultar senha. Esse
+   ícone do navegador fica por cima e captura o clique antes que ele chegue
+   no botão da aplicação, fazendo-o parecer "não funcionar". */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+input::-webkit-credentials-auto-fill-button,
+input::-webkit-caps-lock-indicator {
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+}
