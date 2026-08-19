@@ -1,0 +1,901 @@
+==============================================================================
+RELATORIO DE AUDITORIA - VULNERABILIDADES, INSTABILIDADES E TESTES AUTOMATIZADOS
+Portal Interno de Governanca de TI & Gestao de Acessos
+==============================================================================
+Data da auditoria: 12/08/2026
+Data das correcoes: 12/08/2026 (mesma sessao - ver "STATUS DAS CORRECOES" no
+topo deste documento, adicionado apos a auditoria inicial).
+
+*** ATUALIZACAO CRITICA (12/08/2026, sessao QA/pentest adicional) ***
+As correcoes SQL abaixo marcadas como "CORRIGIDOS" (V1, V4, V7, V12, V13)
+so tinham sido escritas no arquivo supabase/migrations/0001_init.sql - o
+arquivo NUNCA tinha sido de fato reexecutado contra o banco Postgres real
+do ambiente de teste. Confirmado ao vivo (conexao Postgres direta +
+reproducao do exploit de V1) e corrigido nessa mesma sessao adicional -
+ver PARTE 4 no final deste documento para o relato completo, os achados
+NOVOS encontrados numa auditoria QA/pentest mais ampla (caixa branca, caixa
+preta e pentest ativo), e o que ficou deliberadamente pendente. A partir de
+12/08/2026 (commit 4576fab), o banco de teste reflete de fato tudo que este
+documento descreve como corrigido.
+
+------------------------------------------------------------------------------
+STATUS DAS CORRECOES (atualizado apos a auditoria)
+------------------------------------------------------------------------------
+CORRIGIDOS (11 de 14 achados) - codigo/SQL alterado, suite de testes
+reexecutada e 100% verde (52/52), `tsc --noEmit`, `eslint` e `npm run build`
+limpos:
+  V1  - trigger fn_validate_access_request_transition agora dispara em INSERT
+        e UPDATE, e nunca deixa reviewed_by/review_notes/decision_at serem
+        forjados fora de uma decisao legitima.
+  V2  - as 7 Server Actions de UPDATE afetadas agora encadeiam .select("id")
+        e tratam array vazio como erro (nao mais sucesso silencioso).
+  V4  - hardware_checkins ganhou CHECK garantindo que reference_month e
+        sempre o 1o dia do mes.
+  V5  - signOutAction agora chama assertTrustedOrigin() como as demais.
+  V7  - hardware_contracts.asset_id e hardware_checkins.asset_id passaram de
+        ON DELETE CASCADE para ON DELETE RESTRICT.
+  V8  - novo helper lib/utils/require-role.ts adicionado e usado nas 5
+        Server Actions administrativas que nao verificavam role no app.
+  V9  - upload de foto de check-in agora valida os magic bytes reais do
+        arquivo (lib/utils/sniff-image-type.ts), nao so o Content-Type
+        declarado pelo client.
+  V10 - ids antes validados manualmente (typeof === "string") agora usam
+        z.string().uuid() como o resto do projeto.
+  V11 - next.config.mjs agora emite Content-Security-Policy e
+        Strict-Transport-Security tambem no nivel da aplicacao (mesmos
+        valores ja documentados para o Nginx).
+  V12 - ON DELETE SET NULL aplicado de forma consistente em
+        audit_logs.changed_by, hardware_assets.assigned_to,
+        mobile_lines.assigned_to e knowledge_base_articles
+        (category_id/created_by/updated_by).
+  V13 - triggers de auditoria adicionadas em departments, access_catalog e
+        knowledge_base_categories.
+
+NAO CORRIGIDOS NESTA RODADA (2 achados) - decisao deliberada, nao esquecimento:
+  V3  - upgrade do Next.js (14.2.35 -> 15.5.21+/16.x) NAO foi executado. E um
+        bump de versao MAJOR com breaking changes esperados no App
+        Router/Server Actions, cuja validacao adequada exige mais do que a
+        suite de testes unitarios deste projeto (smoke test manual de cada
+        modulo, no minimo). Fica como item de projeto separado, priorizado
+        antes do deploy em producao dado o volume de CVEs relevantes a Server
+        Actions.
+  V14 - a vulnerabilidade de glob (via eslint-config-next) e transitiva de
+        devDependency e so afeta o ambiente de build/lint, nunca producao;
+        corrigi-la tambem depende do mesmo upgrade major do ecossistema
+        Next.js/eslint-config-next do item V3.
+
+NAO SE APLICA CORRECAO DE CODIGO:
+  V6  - risco documentado e mitigado pela topologia de deploy planejada
+        (Nginx set_real_ip_from); nao ha alteracao de codigo pendente, so a
+        validacao operacional no momento do deploy (ja registrada na secao
+        do achado abaixo).
+
+Resultado da suite de testes apos as correcoes: 52 testes, 52 passaram (0
+falhas). Os 11 testes que antes falhavam de proposito (provando os achados
+V1, V2, V4, V5, V7, V12 e V13) agora passam, pois o comportamento que eles
+verificam foi corrigido. Dois arquivos de teste de regressao
+(test/unit/regression/) foram atualizados para continuar cobrindo tanto o
+caminho antes vulneravel quanto o caminho legitimo (para nao permitir que a
+correcao regrida silenciosamente). Detalhes de cada teste na Parte 2.
+
+
+Escopo: codigo-fonte completo (Next.js 14 App Router + Server Actions),
+        schema/policies SQL (supabase/migrations/0001_init.sql),
+        configuracao de headers (next.config.mjs) e dependencias (npm audit).
+Metodo: leitura integral do codigo-fonte e do schema SQL, verificacao cruzada
+        de cada achado contra o arquivo real (nenhum achado abaixo e
+        especulativo), e criacao de testes automatizados (Vitest) que
+        codificam cada achado como regressao executavel.
+
+
+------------------------------------------------------------------------------
+RESUMO EXECUTIVO
+------------------------------------------------------------------------------
+A aplicacao segue, na maior parte, os principios de Zero-Trust descritos no
+seu proprio ADR Master (ARCH_DECISIONS.txt): RLS habilitado em 100% das
+tabelas, validacao Zod .strict() em quase todos os Server Actions, cookies
+HttpOnly/Secure/SameSite=Strict, revalidacao via getUser() (nao getSession()),
+e auditoria imutavel via trigger SECURITY DEFINER sem policy de escrita
+client-side. Isso e a base correta.
+
+Foram identificados, porem, 14 achados (2 de severidade Alta, 5 Media,
+7 Baixa) que quebram essa garantia em pontos especificos - o mais serio
+sendo que varias Server Actions de UPDATE nao detectam quando o RLS bloqueia
+silenciosamente a operacao, reportando "sucesso" ao usuario mesmo quando
+nada foi alterado no banco. Foi criada uma suite de 49 testes automatizados
+(Vitest): 38 confirmam que os controles corretos continuam funcionando, e
+11 sao testes de regressao que provam os achados mais criticos (falham hoje
+de proposito e devem passar a passar apos as correcoes sugeridas).
+
+
+------------------------------------------------------------------------------
+PARTE 1 - VULNERABILIDADES E INSTABILIDADES ENCONTRADAS
+------------------------------------------------------------------------------
+Cada achado foi verificado por leitura direta do arquivo e linha citados
+(nao e um achado gerado sem confirmacao).
+
+[V1] SEVERIDADE ALTA - Forjamento de metadados de aprovacao em access_requests
+Categoria: Vulnerabilidade de seguranca (integridade de dados de governanca)
+Arquivo: supabase/migrations/0001_init.sql, linhas 172-183, 214-240, 477-486
+Descricao:
+  A trigger fn_validate_access_request_transition (linha 214-235) so e
+  anexada como "before update" (linha 238-239) - nunca dispara em INSERT.
+  A policy access_requests_insert (linha 477-480) so exige
+  "requester_id = auth.uid() and status = 'pendente'", sem restringir as
+  colunas reviewed_by/review_notes/decision_at.
+  Alem disso, a policy access_requests_update_requester (linha 482-486),
+  usada para cancelamento pelo proprio solicitante, tambem nao restringe
+  essas colunas - e a trigger so zera/carimba reviewed_by/decision_at quando
+  o novo status entra em ('aprovado','negado','em_analise'); a transicao
+  para 'cancelado' nao passa por essa logica.
+Cenario de exploracao concreto:
+  Um colaborador autenticado, chamando a REST API do PostgREST diretamente
+  (contornando a UI do Next.js - exatamente o cenario que a arquitetura
+  Zero-Trust do projeto deveria neutralizar), pode:
+  (a) na criacao da propria solicitacao, incluir no INSERT um
+      reviewed_by = <uuid de um gestor real> e review_notes/decision_at
+      fabricados, mesmo com status permanecendo 'pendente'; ou
+  (b) ao cancelar a propria solicitacao (UPDATE para 'cancelado'), incluir
+      reviewed_by/review_notes arbitrarios no mesmo payload.
+  Isso corrompe o historico de revisao de um modulo cujo proposito e
+  auditoria/governanca de acesso - um registro pode aparentar ter sido
+  avaliado por alguem que nunca o avaliou.
+Correcao sugerida:
+  Alterar a trigger para "before insert or update" e, dentro dela, sempre
+  forcar reviewed_by/decision_at/review_notes para NULL exceto nas
+  transicoes legitimas que a propria trigger controla (incluindo a
+  transicao para 'cancelado').
+Teste automatizado: test/unit/sql/migration-rls-static-checks.test.ts,
+  caso "Achado SQL#1" (FALHA hoje de proposito).
+
+
+[V2] SEVERIDADE ALTA - UPDATE sem .select() mascara falha de permissao como sucesso
+Categoria: Vulnerabilidade de seguranca / Instabilidade (auditoria e UX)
+Arquivos e linhas:
+  - app/dashboard/approvals/actions.ts:37-56 (decideAccessRequestAction)
+  - app/dashboard/access-requests/actions.ts:72-83 (cancelAccessRequestAction)
+  - app/dashboard/admin/catalogo/actions.ts:60-72 (toggleCatalogItemActiveAction)
+  - app/dashboard/admin/hardware/actions.ts:69-81 (updateHardwareAssetStatusAction)
+  - app/dashboard/admin/hardware/checkins/actions.ts:22-37 (resolveMaintenanceAction)
+  - app/dashboard/admin/telefonia/actions.ts:67-76 (updateMobileLineAction)
+  - app/dashboard/wiki/actions.ts:113-124 e 145-156 (updateArticleAction, togglePublishArticleAction)
+Descricao:
+  Todas essas Server Actions chamam `.update(...).eq("id", ...)` sem
+  `.select()` e sem checar quantas linhas foram afetadas. No
+  @supabase/supabase-js v2.45.4, uma mutacao sem .select() usa
+  "Prefer: return=minimal": se a policy de RLS filtrar a linha do UPDATE
+  (usuario sem permissao sobre aquele registro, id de outro usuario, estado
+  incompativel etc.), o PostgREST NAO retorna erro - apenas afeta 0 linhas e
+  devolve { data: null, error: null }. O codigo so verifica "if (error)",
+  entao sempre cai no redirectWithSuccess.
+Cenario de exploracao concreto:
+  Um gestor sem relacao com uma solicitacao especifica (ou tentando decidir
+  uma que outro gestor ja decidiu) envia o formulario de aprovacao; a policy
+  bloqueia o UPDATE, a solicitacao continua "pendente" no banco, mas a tela
+  mostra "Acesso aprovado."/"Acesso negado." - a decisao nunca foi
+  registrada, mas todos os envolvidos acreditam que foi. O mesmo padrao se
+  repete ao cancelar solicitacao de outro usuario, resolver manutencao de
+  hardware de terceiro, alternar publicacao de artigo sem ser autor/RH, etc.
+  Como Server Actions do Next.js sao endpoints POST que continuam
+  alcancaveis mesmo que o botao nao seja renderizado na tela do usuario
+  (o RLS e a unica barreira real), qualquer usuario autenticado pode acionar
+  essas actions diretamente e sempre recebe uma resposta de "sucesso".
+Correcao sugerida:
+  Encadear `.select("id")` apos o `.eq(...)` e checar se o array retornado
+  esta vazio; se estiver, tratar como "nao encontrado ou sem permissao" e
+  mostrar redirectWithError em vez de redirectWithSuccess.
+Teste automatizado:
+  test/unit/regression/update-sem-select-mascara-falha-de-permissao.test.ts
+  (2 casos, ambos FALHAM hoje de proposito: aprovacao e cancelamento).
+
+
+[V3] SEVERIDADE ALTA - Next.js desatualizado com ~20 CVEs conhecidas, sem patch na branch 14.x
+Categoria: Vulnerabilidade de seguranca (dependencia)
+Verificado via: npm audit (12/08/2026), next@14.2.35 instalado (ja e o ultimo
+  patch disponivel em 14.2.x - npm nao encontrou versao 14.x que corrija os
+  advisories; a correcao recomendada pelo proprio npm e upgrade major para
+  next@16.3.0, "isSemVerMajor": true).
+Descricao:
+  A auditoria de dependencias aponta next.js (dependencia direta, producao)
+  vulneravel a diversos CVEs publicados contra as faixas ">=13.0.0 <15.5.x"
+  e ">=14.1.1 <15.5.21", entre eles (severidade HIGH):
+  - SSRF em Server Actions (GHSA-89xv-2m56-2m9x) - MUITO relevante aqui, pois
+    o projeto usa Server Actions extensivamente em todos os modulos.
+  - SSRF em rewrites via hostname de destino controlado por atacante
+    (GHSA-p9j2-gv94-2wf4).
+  - Denial of Service em App Router usando Server Actions (GHSA-m99w-x7hq-7vfj).
+  - Middleware/Proxy bypass em apps com i18n (GHSA-36qx-fr4f-26g5) - o
+    middleware.ts deste projeto e a camada de UX que redireciona por role.
+  - HTTP request deserialization causando DoS (GHSA-h25m-26qc-wcjf).
+  Ha ainda diversos CVEs MODERATE de cache poisoning/cache confusion de
+  Server Components e um de exposicao nao autenticada de endpoints internos
+  de Server Function (GHSA-955p-x3mx-jcvp).
+Correcao sugerida:
+  Planejar upgrade do Next.js para a linha 15.5.21+ ou 16.x (major, com
+  breaking changes esperados - nao e um "npm audit fix" trivial). Ate a
+  migracao, considerar mitigacoes de borda (regras no Nginx/WAF planejado)
+  para os vetores de SSRF/DoS mais criticos.
+Observacao: eslint-config-next (devDependency) tambem reporta uma
+  vulnerabilidade HIGH via glob (command injection, CWE-78) - impacto restrito
+  ao ambiente de build/lint, nao ao runtime de producao.
+
+
+[V4] SEVERIDADE ALTA - Bypass de "1 check-in de hardware por mes"
+Categoria: Vulnerabilidade de seguranca / regra de negocio
+Arquivo: supabase/migrations/0001_init.sql, linhas 272-289
+Descricao:
+  A constraint uq_checkin_asset_month (asset_id, reference_month) e uma
+  UNIQUE real de banco (correto), mas a granularidade "por mes" depende
+  inteiramente do backend truncar reference_month para o dia 1 antes do
+  INSERT - nao ha CHECK garantindo
+  "reference_month = date_trunc('month', reference_month)".
+Cenario de exploracao:
+  Uma chamada direta a API REST do PostgREST (contornando o Next.js) pode
+  inserir reference_month = '2026-08-01', '2026-08-15' e '2026-08-31' para o
+  mesmo ativo - tres check-ins "validos" no mesmo mes, pois a UNIQUE trata
+  cada data como distinta.
+Correcao sugerida:
+  Adicionar `check (reference_month = date_trunc('month', reference_month)::date)`
+  na tabela hardware_checkins.
+Teste automatizado: test/unit/sql/migration-rls-static-checks.test.ts,
+  caso "Achado SQL#2" (FALHA hoje de proposito).
+
+
+[V5] SEVERIDADE MEDIA - signOutAction sem verificacao de origem (CSRF de logout forcado)
+Categoria: Vulnerabilidade de seguranca (CSRF)
+Arquivo: app/dashboard/actions.ts, linhas 6-10
+Descricao:
+  E a unica Server Action de todo o projeto que muda estado (auth.signOut())
+  sem chamar assertTrustedOrigin() no inicio, ao contrario de absolutamente
+  todas as outras actions de mutacao do codebase.
+Cenario de exploracao:
+  Um site malicioso pode montar um <form>/fetch cross-site apontando para
+  esta action e forcar o logout de qualquer usuario autenticado que visite a
+  pagina, sem interacao alem de abrir o link. Impacto limitado (incomodo/DoS
+  de sessao, nao vazamento de dados), mas quebra o padrao de defesa em
+  profundidade adotado no resto do app.
+Correcao sugerida:
+  Adicionar `await assertTrustedOrigin();` como primeira linha da funcao,
+  igual as demais.
+Teste automatizado: test/unit/regression/signout-sem-verificacao-de-origem.test.ts
+  (FALHA hoje de proposito).
+
+
+[V6] SEVERIDADE MEDIA - IP de auditoria confia em header repassavel pelo cliente
+Categoria: Vulnerabilidade de seguranca (integridade de auditoria) / risco de
+  deploy incompleto
+Arquivos: lib/supabase/server.ts linhas 15-27, supabase/migrations/0001_init.sql
+  linhas 667-687 (fn_audit_trigger, leitura de x-client-ip)
+Descricao:
+  O client_ip gravado em audit_logs vem do header HTTP customizado
+  "x-client-ip", que o proprio Next.js (lib/supabase/server.ts) preenche a
+  partir de "x-forwarded-for" da requisicao recebida. A garantia de que esse
+  valor e confiavel depende 100% do Nginx, em producao, sobrescrever (nao
+  concatenar) X-Forwarded-For com $remote_addr antes de repassar ao Next.js -
+  o que esta corretamente documentado e configurado em
+  ARQUITETURA_TECNICA.md (secao 6.2), mas o deploy em EC2/Nginx ainda esta
+  marcado como "Pendente" no README.md (linha 100: "Deploy AWS EC2 - Pendente").
+Cenario de exploracao:
+  Em qualquer ambiente onde o Next.js seja acessado sem esse Nginx especifico
+  na frente (ambiente de dev/staging exposto por engano, deploy alternativo,
+  ou uma futura reconfiguracao de proxy que nao preserve exatamente
+  "set_real_ip_from"/"real_ip_header"), um usuario autenticado pode forjar
+  livremente o header X-Forwarded-For e ter qualquer IP de sua escolha
+  gravado como autor (client_ip) de suas proprias acoes na trilha de
+  auditoria - uma trilha que a documentacao do projeto trata como prova
+  forense de "quem fez o que, quando".
+Correcao sugerida:
+  Nao ha correcao de codigo pendente (a decisao de design esta documentada e
+  e razoavel dentro da topologia planejada) - o item fica registrado para
+  garantir que, no momento do deploy, o Nginx com "set_real_ip_from" seja
+  validado antes de a aplicacao ir ao ar, e para que nenhum ambiente
+  intermediario (dev/staging) fique acessivel publicamente sem essa camada.
+
+
+[V7] SEVERIDADE MEDIA - CASCADE em contratos e check-ins ao excluir um ativo de hardware
+Categoria: Instabilidade / risco de perda de auditoria
+Arquivo: supabase/migrations/0001_init.sql, linhas 263-270 e 275-289
+Descricao:
+  hardware_status ja modela retirada de circulacao via 'baixado'/'extraviado'
+  (nunca deveria ser necessario excluir um ativo de fato), mas
+  hardware_contracts.asset_id e hardware_checkins.asset_id usam
+  "on delete cascade". admin_ti tem CRUD completo sobre hardware_assets
+  (policy "for all"). Um DELETE em um ativo (acidental ou por um admin
+  comprometido) apaga silenciosamente os contratos assinados e todo o
+  historico de check-ins associados - dados que o proprio schema trata como
+  registro que "nunca deve ser apagado" para colunas analogas
+  (requester_id/profile_id continuam RESTRICT).
+Correcao sugerida:
+  Trocar para "on delete restrict" nessas duas FKs, forcando o uso do campo
+  status para retirar um ativo de circulacao em vez de exclui-lo.
+Teste automatizado: test/unit/sql/migration-rls-static-checks.test.ts,
+  caso "Achado SQL#4" (FALHA hoje de proposito).
+
+
+[V8] SEVERIDADE MEDIA - Actions administrativas sem checagem explicita de role no app
+Categoria: Vulnerabilidade de seguranca (defesa em profundidade ausente)
+Arquivos: admin/catalogo/actions.ts, admin/hardware/actions.ts,
+  admin/telefonia/actions.ts, wiki/actions.ts (createCategoryAction)
+Descricao:
+  Nenhuma dessas actions chama supabase.auth.getUser() ou verifica o role do
+  usuario antes de tentar a mutacao - dependem 100% do RLS. Isoladamente,
+  isso e relativamente seguro para INSERT (a policy WITH CHECK bloqueia e o
+  erro e logado com mensagem generica ao usuario). O problema real e a
+  combinacao com o achado V2: nas mesmas actions que fazem UPDATE/toggle
+  (toggleCatalogItemActiveAction, updateHardwareAssetStatusAction,
+  updateMobileLineAction), a ausencia de checagem no app remove a unica
+  chance de dar uma mensagem clara ("sem permissao") em vez de depender do
+  efeito colateral silencioso descrito em V2.
+Correcao sugerida:
+  Adicionar uma checagem leve de profiles.role no inicio dessas actions,
+  mesmo que redundante com o RLS, para produzir mensagens de erro corretas.
+
+
+[V9] SEVERIDADE BAIXA - Upload de foto de check-in confia no Content-Type declarado pelo cliente
+Categoria: Vulnerabilidade de seguranca (validacao incompleta)
+Arquivo: app/dashboard/hardware/actions.ts, linhas 38-44, 73, 81
+Descricao:
+  file.type vem do metadata do File/Blob enviado pelo cliente (facilmente
+  falsificavel). A validacao server-side compara essa string contra uma
+  allowlist e depois a reutiliza como contentType do objeto salvo no
+  Storage - sem verificacao de assinatura binaria (magic bytes). O upload de
+  contrato (admin/hardware/actions.ts:122), em contraste, usa um contentType
+  fixo "application/pdf" independente do que o cliente informou - um padrao
+  mais seguro que poderia ser replicado aqui.
+Correcao sugerida:
+  Validar a assinatura binaria real do arquivo no servidor antes do upload,
+  em vez de confiar apenas no header MIME informado pelo cliente.
+
+
+[V10] SEVERIDADE BAIXA - IDs validados manualmente em vez de via Zod .uuid()
+Categoria: Instabilidade / inconsistencia
+Arquivos: admin/catalogo/actions.ts:53-58, admin/hardware/checkins/actions.ts:15-20,
+  wiki/actions.ts:86-89 e 129-134
+Descricao:
+  Ao contrario do resto do codigo (Zod .strict() + .safeParse sistematico),
+  essas quatro actions validam o id manualmente com
+  "typeof id !== 'string' || id.length === 0", sem checar formato UUID. Um
+  valor nao-UUID chega ao .eq(...) e o Postgres rejeita com erro de sintaxe
+  de tipo (capturado e traduzido em mensagem generica - sem leak, mas
+  inconsistente com o padrao do restante do projeto).
+Correcao sugerida: aplicar z.string().uuid() tambem nesses pontos.
+
+
+[V11] SEVERIDADE BAIXA - Aplicacao nao emite CSP/HSTS proprios
+Categoria: Instabilidade de configuracao (defesa em profundidade)
+Arquivo: next.config.mjs, linhas 4-9
+Descricao:
+  O README.md e o ARCH_DECISIONS.txt afirmam que "a aplicacao deve emitir
+  CSP restritivo, HSTS e X-Frame-Options por padrao". Na pratica,
+  next.config.mjs emite apenas X-Frame-Options, X-Content-Type-Options,
+  Referrer-Policy e Permissions-Policy - Content-Security-Policy e
+  Strict-Transport-Security sao emitidos apenas pelo Nginx (documentado em
+  ARQUITETURA_TECNICA.md, secao 6.2), que ainda nao foi implantado (deploy
+  "Pendente"). Ate o deploy, qualquer acesso direto a aplicacao (ex.:
+  ambiente de desenvolvimento exposto, ou uma instancia acessada sem passar
+  pelo Nginx) fica sem CSP/HSTS.
+Correcao sugerida:
+  Duplicar ao menos um CSP restritivo (mesmo que redundante com o Nginx) em
+  next.config.mjs, como e feito com os outros quatro headers, para que a
+  aplicacao nao dependa de uma unica camada para essa proteção.
+
+
+[V12] SEVERIDADE BAIXA - "ON DELETE" inconsistente entre FKs de atribuicao/autoria
+Categoria: Instabilidade (integridade referencial)
+Arquivo: supabase/migrations/0001_init.sql, linhas 253 (hardware_assets.assigned_to),
+  305 (mobile_lines.assigned_to), 328-329 (created_by/updated_by de artigos),
+  325 (category_id de artigos), 346 (audit_logs.changed_by)
+Descricao:
+  O proprio arquivo documenta (linhas 77-82) que profiles.manager_id foi
+  corrigido para "on delete set null" para nao bloquear a exclusao
+  definitiva de um usuario em auth.users (ex.: LGPD). O mesmo raciocinio nao
+  foi replicado nas FKs acima, todas sem clausula "on delete" (= RESTRICT
+  implicito): excluir um colaborador com hardware/linha atribuida, ou um
+  autor de artigo da wiki, ou qualquer usuario que ja tenha uma linha em
+  audit_logs (ou seja, praticamente todos), falha com erro de integridade
+  referencial.
+Correcao sugerida:
+  Aplicar "on delete set null" de forma consistente nessas colunas (ou
+  adotar explicitamente anonimizacao de perfil em vez de hard delete de
+  auth.users, documentando a excecao).
+Teste automatizado: test/unit/sql/migration-rls-static-checks.test.ts,
+  casos "Achado SQL#3a/3b/3c/5" (FALHAM hoje de proposito).
+
+
+[V13] SEVERIDADE BAIXA - Cobertura de auditoria incompleta
+Categoria: Instabilidade (rastreabilidade)
+Arquivo: supabase/migrations/0001_init.sql, linhas 709-742
+Descricao:
+  departments, access_catalog e knowledge_base_categories nao recebem a
+  trigger generica fn_audit_trigger (so profiles, access_requests,
+  hardware_assets, hardware_contracts, hardware_checkins, mobile_lines e
+  knowledge_base_articles a tem). Alteracoes de custo mensal no catalogo de
+  acessos (access_catalog.monthly_cost, que alimenta o Dashboard Executivo)
+  ou renomeacao/exclusao de departamentos por admin_ti ficam sem rastro em
+  audit_logs.
+Correcao sugerida:
+  Anexar trg_audit_* tambem a essas tres tabelas, ou documentar a exclusao
+  como intencional.
+Teste automatizado: test/unit/sql/migration-rls-static-checks.test.ts,
+  caso "Achado SQL#6" (FALHA hoje de proposito).
+
+
+[V14] INFORMATIVO - Vulnerabilidade de dependencia restrita a build/lint
+Categoria: Vulnerabilidade de seguranca (dependencia, baixo impacto)
+Descricao: eslint-config-next -> @next/eslint-plugin-next -> glob@10.2.0-10.4.5
+  tem uma vulnerabilidade HIGH de command injection (GHSA-5j98-mcp5-4vw2,
+  CWE-78) na CLI do glob. Impacto pratico: nulo em produção (glob so e usado
+  em tempo de lint/build, nunca em codigo servido); listado apenas por
+  completude do npm audit.
+
+
+------------------------------------------------------------------------------
+PONTOS FORTES CONFIRMADOS (para contexto - nao sao achados)
+------------------------------------------------------------------------------
+- RLS habilitado em 100% das 11 tabelas de negocio; nenhuma tabela esquecida.
+- Nenhuma policy de UPDATE sem WITH CHECK correspondente (a armadilha
+  classica de RLS nao ocorre em nenhuma das 12 policies de UPDATE/"for all").
+- fn_protect_profile_fields bloqueia corretamente auto-escalonamento de
+  role/department_id/manager_id/is_active; os bypasses documentados
+  (is_admin(), service_role, conexao direta) correspondem apenas a atores ja
+  plenamente confiaveis.
+- audit_logs e efetivamente imutavel do lado client: so existe policy de
+  SELECT (admin); nenhuma policy de INSERT/UPDATE/DELETE e concedida a
+  "authenticated" - nem admin_ti consegue adulterar/apagar logs via API.
+- Funcoes auxiliares de RLS (is_admin, current_role, is_manager_of) sao
+  SECURITY DEFINER + STABLE, evitando recursao de RLS em profiles.
+- Storage: buckets privados, path sempre "{auth.uid()}/..." montado no
+  servidor (nunca aceito do client - sem path traversal), sem IDOR aparente
+  entre colaboradores.
+- assertTrustedOrigin() e chamado corretamente como primeira linha em
+  praticamente todas as Server Actions de mutacao (exceto o achado V5).
+- Zod .strict() + .safeParse usado consistentemente; nenhum .parse()
+  desprotegido encontrado.
+- Nenhum dangerouslySetInnerHTML em todo o app/ - conteudo da wiki
+  renderizado como texto puro pelo React, neutralizando Stored XSS por
+  design.
+- Erros do Supabase sao sempre logados no servidor (console.error) e a
+  mensagem ao usuario e sempre generica - nenhum leak de stack trace ou
+  detalhe interno encontrado.
+- .env.local nunca foi versionado (confirmado via git log); SUPABASE_SERVICE_ROLE_KEY
+  nao e importada em nenhuma rota alcancavel por input de usuario comum.
+
+
+------------------------------------------------------------------------------
+PARTE 2 - TESTES AUTOMATIZADOS CRIADOS
+------------------------------------------------------------------------------
+Framework: Vitest (adicionado como devDependency; nenhum framework de teste
+existia previamente no projeto).
+Configuracao: vitest.config.ts (alias "@/*" espelhando o tsconfig.json, e
+  alias do pacote "server-only" para um stub em test/stubs/server-only.ts -
+  o pacote real lanca uma Error fora do bundler do Next.js, o que impediria
+  importar lib/supabase/server.ts e lib/utils/assert-trusted-origin.ts em
+  qualquer ambiente de teste puro em Node).
+Como rodar: `npm test` (equivalente a `npx vitest run`).
+
+Resultado da execucao nesta auditoria: 49 testes, 38 passaram, 11 falharam.
+AS 11 FALHAS SAO INTENCIONAIS E ESPERADAS: cada uma e um teste de regressao
+que prova um achado de vulnerabilidade/instabilidade descrito na Parte 1,
+escrito para falhar HOJE (evidencia automatizada do problema) e passar a
+PASSAR depois que a correcao sugerida for aplicada. Nenhuma delas indica um
+bug introduzido pelos proprios testes.
+
+Estrutura de arquivos criada (todos em test/):
+
+  test/stubs/server-only.ts
+    Estende o pacote "server-only" para o ambiente de teste (ver acima).
+
+  test/unit/validations/*.test.ts (auth, access-requests, hardware,
+  knowledge-base, mobile-lines, access-catalog)
+    Testam todos os schemas Zod em lib/validations/: casos validos, casos
+    invalidos, e principalmente que .strict() rejeita campos extras
+    injetados (ex.: tentar mandar "status" ou "reviewed_by" na criacao de
+    uma solicitacao) e que os .refine() de negocio funcionam (motivo
+    obrigatorio ao negar acesso; detalhes obrigatorios ao pedir manutencao).
+    Todos passam (38 testes no total, incluindo os dois arquivos abaixo).
+
+  test/unit/utils/reference-month.test.ts
+    Confirma que currentReferenceMonth() sempre usa UTC e sempre retorna o
+    dia 01 do mes - a base da constraint "1 check-in por mes" (ver V4).
+
+  test/unit/utils/assert-trusted-origin.test.ts
+    Confirma que a defesa anti-CSRF central do projeto (assertTrustedOrigin)
+    rejeita corretamente origem ausente, origem de outro dominio, e
+    subdominio diferente do host - e aceita quando origem e host coincidem.
+
+  test/unit/regression/update-sem-select-mascara-falha-de-permissao.test.ts
+    [FALHA HOJE - prova o achado V2] Simula o retorno real do PostgREST
+    quando o RLS bloqueia um UPDATE (data: null, error: null) e confirma que
+    decideAccessRequestAction/cancelAccessRequestAction hoje reportam
+    sucesso mesmo assim. Passara a passar quando essas actions checarem se
+    alguma linha foi de fato afetada.
+
+  test/unit/regression/signout-sem-verificacao-de-origem.test.ts
+    [FALHA HOJE - prova o achado V5] Simula uma requisicao com Origin de um
+    site diferente do Host e confirma que signOutAction() hoje chama
+    supabase.auth.signOut() mesmo assim (nao verifica a origem). Passara a
+    passar quando a action chamar assertTrustedOrigin() como as demais.
+
+  test/unit/sql/migration-rls-static-checks.test.ts
+    Verificacoes textuais/estaticas sobre o arquivo de migration SQL,
+    pensadas para rodar em CI sem depender de um banco Postgres real (o
+    projeto ja documenta uma metodologia de teste ao vivo contra um projeto
+    Supabase real para validacao completa de RLS - este arquivo complementa
+    isso com uma rede de seguranca leve e rapida). Contem:
+      - 8 casos [FALHAM HOJE] - um para cada achado SQL#1, SQL#2, SQL#3a,
+        SQL#3b, SQL#3c, SQL#4, SQL#5 e SQL#6 (achados V1, V4, V7, V12, V13).
+      - 3 casos que JA PASSAM e nao devem regredir: RLS habilitado nas 11
+        tabelas, audit_logs sem nenhuma policy de escrita para
+        "authenticated", e uq_checkin_asset_month continua sendo UNIQUE real
+        de banco.
+
+IMPORTANTE - limite explicito destes testes: os testes de
+test/unit/regression/ usam mocks (vi.doMock) do cliente Supabase e do
+Next.js, e os de test/unit/sql/ fazem apenas analise textual do arquivo SQL.
+Nenhum deles substitui a validacao ao vivo contra RLS real, ja praticada
+pela equipe conforme descrito no README.md ("Metodologia de teste") - eles
+existem para dar sinal rapido em CI a cada commit, sem custo de
+infraestrutura, e para impedir que estes 11 achados especificos regressem
+silenciosamente apos corrigidos.
+
+
+------------------------------------------------------------------------------
+PARTE 3 - RECOMENDACOES E ORDEM DE PRIORIDADE SUGERIDA
+------------------------------------------------------------------------------
+1. V2 (UPDATE sem .select()) - maior risco pratico: afeta 7 fluxos de
+   negocio diferentes e mascara falhas de autorizacao como sucesso. Corrigir
+   primeiro; e a mudanca de menor esforco com maior reducao de risco.
+2. V1 (forjamento de reviewed_by/decision_at) - ajustar a trigger de
+   validacao de access_requests para cobrir INSERT e a transicao para
+   'cancelado'.
+3. V5 (CSRF no logout) - correcao de uma linha (assertTrustedOrigin()).
+4. V4 (bypass de check-in mensal) - adicionar o CHECK de date_trunc.
+5. V3 (Next.js desatualizado) - planejar como item de projeto separado
+   (upgrade major, nao e um fix pontual); priorizar antes do deploy em
+   producao dado o numero de CVEs HIGH relevantes ao uso intensivo de Server
+   Actions deste projeto.
+6. Demais achados (V6 a V14) - corrigir de forma incremental; nenhum tem
+   explorabilidade imediata comparavel aos itens acima, mas todos reduzem a
+   superficie de defesa em profundidade que o proprio ADR Master do projeto
+   exige.
+
+------------------------------------------------------------------------------
+PARTE 4 - AUDITORIA QA/PENTEST COMPLETA ADICIONAL (12/08/2026)
+------------------------------------------------------------------------------
+Pedido: testes caixa branca/caixa preta, qualidade e pentest em toda a
+aplicacao, corrigindo o que fosse viavel. Metodo: 2 revisores de codigo
+independentes em paralelo (um em app/**+components/**, outro em lib/**+
+migration SQL) + pentest ativo contra o ambiente de teste real (chamadas
+diretas a API REST do PostgREST e conexao Postgres direta via pooler do
+Supabase - nao so contra a UI) + testes caixa-preta via Playwright contra um
+build local apontando para o mesmo banco de teste (login, as 12 rotas do
+dashboard, e o fluxo funcional completo de criar/aprovar solicitacao de
+acesso).
+
+[ACHADO CRITICO - nao e um achado de codigo, e um achado de PROCESSO]
+Descricao: os achados V1, V4, V7, V12 e V13 acima, marcados "CORRIGIDOS" na
+auditoria original, so tinham a correcao escrita no arquivo de migration -
+nunca foram aplicados de fato no Postgres do ambiente de teste. A suite de
+testes que "provava" a correcao (test/unit/sql/migration-rls-static-checks.
+test.ts) faz analise TEXTUAL do arquivo .sql, nao consulta o banco real; ela
+passar nao significa que o banco reflete o arquivo.
+Verificacao: conectando direto no Postgres (nao via PostgREST) e comparando
+pg_get_functiondef/pg_constraint/information_schema.triggers do banco real
+contra o que o arquivo especifica, para cada um dos 5 achados.
+Prova de exploracao ao vivo (antes da correcao desta sessao): autenticado
+como usuario comum via API REST, INSERT em access_requests com
+reviewed_by/review_notes/decision_at forjados foi aceito sem nenhum erro -
+os valores forjados vieram de volta exatamente como enviados no payload
+(reproducao exata do cenario descrito no achado V1, que supostamente ja
+estava corrigido).
+Correcao: arquivo de migration reexecutado integralmente contra o banco de
+teste (e idempotente por design - CREATE OR REPLACE FUNCTION, DROP POLICY
+IF EXISTS + CREATE POLICY, DROP TRIGGER IF EXISTS + CREATE TRIGGER). As 3
+mudancas que sao definicoes INLINE dentro de `create table` (V4, V7, V12) -
+que um rerun de `create table if not exists` NAO reaplica numa tabela ja
+existente - foram aplicadas via ALTER TABLE explicito, verificado nao
+haver dados existentes que violassem as novas constraints antes de aplicar.
+Reexploracao tentada depois: bloqueada nos 4 casos testados (V1, V4, e as
+alteracoes de ON DELETE de V7/V12 confirmadas via pg_constraint).
+Recomendacao de processo: nenhuma correcao de schema deveria ser
+considerada "aplicada" sem uma consulta ao catalogo do banco real
+(pg_constraint/pg_trigger/pg_get_functiondef) - texto do arquivo e testes
+estaticos provam que o ARQUIVO esta certo, nao que o BANCO reflete o
+arquivo. Nao existe hoje nenhum pipeline (`supabase db push` ou equivalente)
+que garanta isso automaticamente.
+
+
+[V15] SEVERIDADE ALTA - Cookie de sessao sem HttpOnly/Secure/SameSite=Strict
+Categoria: Vulnerabilidade de seguranca (exposicao de token de sessao)
+Arquivo: lib/supabase/server.ts, setAll() do adaptador de cookies
+Descricao: passava as `options` devolvidas pelo @supabase/ssr direto para
+  `cookieStore.set(name, value, options)`, sem forcar httpOnly/secure/
+  sameSite - diferente de lib/supabase/middleware.ts, que ja fazia isso
+  corretamente. O proprio comentario do arquivo (e o README.md do projeto)
+  afirmava que a sessao trafega "exclusivamente via cookies HttpOnly/Secure/
+  SameSite=Strict" - o codigo real nao cumpria isso para o cookie gravado
+  via Server Action (que e o caminho do login).
+Verificacao: Playwright login real contra o servidor -> cookie
+  sb-<ref>-auth-token chegava ao browser com httpOnly=false, secure=false,
+  sameSite=Lax.
+Cenario de exploracao: qualquer XSS que existisse no app (mesmo pequeno,
+  mesmo numa dependencia futura) teria acesso direto ao token de sessao via
+  document.cookie - exatamente o vetor que a flag HttpOnly existe para
+  neutralizar.
+Correcao aplicada: setAll() agora forca httpOnly:true, secure:true,
+  sameSite:"strict", igual ao middleware. Reverificado ao vivo apos deploy:
+  os tres atributos corretos no cookie real.
+
+
+[V16] SEVERIDADE ALTA - Auto-aprovacao de solicitacao de acesso via API direta
+Categoria: Vulnerabilidade de seguranca (quebra de segregacao de funcoes)
+Arquivos: supabase/migrations/0001_init.sql (policy
+  access_requests_update_approver), app/dashboard/approvals/page.tsx (linha
+  ~54-64), app/dashboard/approvals/actions.ts
+Descricao: a pagina de aprovacoes exclui a propria solicitacao do usuario
+  da LISTAGEM via `.neq("requester_id", user.id)" na query - mas isso e um
+  filtro de UI, nao uma regra de autorizacao. Nem a policy de RLS nem a
+  Server Action decideAccessRequestAction verificavam se quem decide e o
+  proprio solicitante.
+Cenario de exploracao (reproduzido ao vivo): logado como admin_ti, criei uma
+  solicitacao de acesso pela propria UI e, com o mesmo token, fiz um PATCH
+  direto ao PostgREST aprovando essa mesma solicitacao - aceito sem erro,
+  reviewed_by corretamente registrado como o proprio usuario (a trigger
+  correctamente expos a auto-aprovacao no historico, mas nada a impediu de
+  acontecer).
+Correcao aplicada: policy access_requests_update_approver agora exige
+  `requester_id <> auth.uid()` tanto no USING quanto no WITH CHECK.
+Reexploracao apos correcao: bloqueada com erro 42501 (row-level security
+  policy violation).
+
+
+[V17] SEVERIDADE ALTA - is_active (offboarding) nunca verificado na autorizacao
+Categoria: Vulnerabilidade de seguranca (revogacao de acesso incompleta)
+Arquivos: supabase/migrations/0001_init.sql (functions current_role(),
+  is_admin(), is_manager_of()), lib/utils/require-role.ts
+Descricao: nenhuma das tres functions SECURITY DEFINER usadas por toda a
+  RLS do projeto filtrava profiles.is_active, e o helper requireRole() da
+  aplicacao tambem so olhava profiles.role. profiles.is_active = false e o
+  mecanismo de offboarding documentado no proprio schema (linha que hoje
+  documenta fn_protect_profile_fields tratando is_active como campo
+  administrativo sensivel) - mas nada de fato revogava privilegio com base
+  nele.
+Cenario de exploracao: RH/admin desativa um colaborador (is_active=false)
+  sem ter revogado a sessao/senha no Supabase Auth (nao ha integracao com
+  auth.admin.signOut/ban); a sessao existente (ou um novo login com senha
+  ainda valida) continua tendo acesso completo conforme o role antigo -
+  incluindo um admin_ti desligado continuando a administrar o sistema
+  indefinidamente.
+Correcao aplicada: is_admin() e current_role() agora exigem is_active=true
+  do proprio chamador; is_manager_of() exige is_active=true do gestor
+  (auth.uid()); requireRole() tambem passou a exigir profile.is_active.
+Observacao: a correcao revoga o PAPEL especial (admin/gestor/rh), nao a
+  capacidade de auth.uid() continuar valido no Supabase Auth em si -
+  integrar offboarding com ban/signOut no Auth continua recomendado como
+  camada adicional, nao implementado nesta rodada (fora do escopo de uma
+  correcao de RLS).
+
+
+[V18] SEVERIDADE MEDIA - access_requests sem trava de estado terminal
+Categoria: Instabilidade (integridade de historico de aprovacao)
+Arquivo: supabase/migrations/0001_init.sql (policy
+  access_requests_update_approver, function
+  fn_validate_access_request_transition)
+Descricao: nenhuma policy ou trigger impedia um admin/gestor de alterar o
+  status de uma solicitacao ja decidida (aprovado/negado/cancelado) para
+  qualquer outro valor, permitindo flip-flop indefinido (aprovado -> negado
+  -> aprovado ...) sobre um registro que o resto do sistema trata como
+  decisao final e imutavel.
+Correcao aplicada: policy so libera UPDATE por admin/gestor quando
+  status IN ('pendente','em_analise'); a trigger tambem rejeita
+  explicitamente (RAISE EXCEPTION) qualquer transicao partindo de um status
+  terminal, como defesa em profundidade contra qualquer caminho que
+  bypasse RLS (ex.: service_role, conexao direta).
+Verificacao ao vivo: criei uma solicitacao, aprovei, tentei mudar para
+  'negado' - bloqueado com a mensagem da excecao customizada.
+
+
+[V19] SEVERIDADE ALTA - Cookies de rotacao de sessao perdidos nos redirects
+Categoria: Instabilidade (logout intermitente / perda de sessao)
+Arquivo: middleware.ts
+Descricao: os 3 caminhos de redirect (nao autenticado -> /login;
+  autenticado em /login -> /dashboard; sem role admin em /dashboard/admin/*
+  -> /dashboard) criavam uma NextResponse.redirect(...) nova e nunca
+  copiavam os cookies do supabaseResponse que updateSession() teria gravado
+  se o access token estivesse expirado e o Supabase tivesse rotacionado o
+  refresh token. E o alerta que a propria documentacao do @supabase/ssr faz
+  sobre esse padrao especifico.
+Cenario: usuario com access token expirado acessa uma rota que dispara um
+  desses 3 redirects; o refresh token antigo e invalidado no Supabase Auth
+  durante a rotacao, mas o Set-Cookie novo nunca chega ao browser - na
+  proxima requisicao o refresh falha e o usuario e deslogado sem motivo
+  aparente.
+Correcao aplicada: helper redirectWithSession() copia
+  supabaseResponse.cookies para toda resposta de redirect antes de
+  retornar.
+
+
+[V20] SEVERIDADE MEDIA - Arquivos orfaos no Storage quando o INSERT falha
+Categoria: Instabilidade / custo operacional
+Arquivos: app/dashboard/hardware/actions.ts (submitCheckinAction),
+  app/dashboard/admin/hardware/actions.ts (uploadHardwareContractAction)
+Descricao: em ambos, o arquivo (foto de check-in / PDF de contrato) sobe ao
+  Storage ANTES do insert na tabela correspondente; se o insert falhar (ex.:
+  check-in duplicado do mes via uq_checkin_asset_month), o arquivo ja
+  enviado nunca era removido.
+Cenario: reabrir o modal apos ja ter feito o check-in do mes (duplo clique,
+  retry de rede, chamada direta ao Server Action) sobe ate 8MB ao Storage a
+  cada tentativa, sem nenhum registro que vincule o arquivo a algo.
+Correcao aplicada: em caso de erro no insert, remove o objeto recem-enviado
+  do bucket antes do redirectWithError.
+
+
+[V21] SEVERIDADE MEDIA - hardware_checkins sem trava de imutabilidade /
+  reference_month aceito do client
+Categoria: Vulnerabilidade de seguranca / instabilidade (integridade de
+  historico)
+Arquivo: supabase/migrations/0001_init.sql (tabela/policies
+  hardware_checkins)
+Descricao: reference_month so era garantido "dia 1 de algum mes" pelo
+  CHECK (V4), nunca "o mes atual" - uma chamada direta ao PostgREST com JWT
+  valido do proprio usuario podia inserir um mes passado ou futuro
+  arbitrario. Alem disso nao havia trigger de imutabilidade: um UPDATE (por
+  quem tivesse permissao) podia reescrever asset_id/profile_id/
+  reference_month/foto/condicao depois do fato.
+Correcao aplicada: trigger fn_lock_hardware_checkin_fields - no INSERT,
+  reference_month e sempre recalculado no proprio banco (America/Sao_Paulo,
+  ignora o valor do payload); no UPDATE, todos os campos historicos sao
+  travados no valor antigo, deixando so admin_notes/maintenance_resolved
+  editaveis (via RLS, restrito a admin_ti). Tambem foi adicionado CHECK
+  chk_checkin_maintenance_details (maintenance_details obrigatorio quando
+  maintenance_requested=true), no mesmo padrao ja usado para
+  review_notes/negado em access_requests.
+
+
+[V22] SEVERIDADE BAIXA - Number(null)/Number("") mascarando campo ausente
+Categoria: Instabilidade (validacao)
+Arquivo: app/dashboard/admin/telefonia/actions.ts, linhas com
+  `Number(formData.get("monthly_cost"))`
+Descricao: Number(null) e Number("") retornam 0 (nao NaN), entao um
+  monthly_cost ausente/vazio passava a validacao .nonnegative() como custo
+  R$0 valido em vez de ser rejeitado - diferente do padrao correto ja usado
+  no arquivo irmao admin/catalogo/actions.ts.
+Correcao aplicada: mesmo guard de admin/catalogo/actions.ts (retorna null
+  se o campo estiver ausente/vazio, deixando o Zod rejeitar).
+
+
+[V23] SEVERIDADE BAIXA - reference-month.ts calculava em UTC, nao em
+  horario de Brasilia
+Categoria: Instabilidade (regra de negocio)
+Arquivo: lib/utils/reference-month.ts
+Descricao: usava getUTCFullYear/getUTCMonth; o negocio e brasileiro
+  (America/Sao_Paulo, UTC-3), entao nas ~3h finais de cada mes em horario de
+  Brasilia (21h-23h59 BRT) a funcao ja calculava o mes seguinte, atribuindo
+  o check-in ao mes errado.
+Correcao aplicada: Intl.DateTimeFormat com timeZone "America/Sao_Paulo".
+  A trigger nova de V21 usa a mesma logica (`at time zone
+  'America/Sao_Paulo'`) para nao haver divergencia entre o que a UI mostra
+  e o que o banco grava.
+
+
+[V24] SEVERIDADE BAIXA - phone_number duplicavel por formatacao
+Categoria: Instabilidade (integridade de dados)
+Arquivo: lib/validations/mobile-lines.ts
+Descricao: a regex `/^\+?[0-9]{10,15}$/` aceita "+5511999999999" e
+  "5511999999999" como strings distintas; a UNIQUE em mobile_lines.
+  phone_number opera sobre a string bruta, nao normalizada - permitindo
+  cadastrar a mesma linha fisica duas vezes.
+Correcao aplicada: `.transform()` removendo o "+" opcional antes de gravar.
+
+
+[V25] SEVERIDADE BAIXA - Indice ausente em hardware_contracts.profile_id
+Categoria: Qualidade / performance
+Arquivo: supabase/migrations/0001_init.sql
+Descricao: a policy hardware_contracts_select filtra profile_id = auth.uid()
+  em toda leitura; a tabela irma hardware_checkins tem o indice equivalente
+  mas hardware_contracts nao tinha.
+Correcao aplicada: idx_hardware_contracts_profile adicionado.
+
+
+[V26] SEVERIDADE BAIXA - Faltavam CHECK de campo em branco em nome/titulo/
+  conteudo
+Categoria: Instabilidade (validacao)
+Arquivo: supabase/migrations/0001_init.sql (departments.name,
+  access_catalog.name, knowledge_base_categories.name,
+  knowledge_base_articles.title/content)
+Descricao: dependiam so de NOT NULL; um POST direto com token admin/rh
+  podia gravar titulo/conteudo/nome só com espaços, diferente do padrao ja
+  usado em access_requests.justification.
+Correcao aplicada: CHECK (length(trim(coluna)) > 0) adicionado em todos.
+
+
+[V27] SEVERIDADE BAIXA - hardware_assets sem CHECK de warranty >= purchase
+Categoria: Instabilidade (integridade de dados)
+Arquivo: supabase/migrations/0001_init.sql
+Descricao: warranty_until podia ser anterior a purchase_date sem nenhuma
+  validacao, no banco ou no Zod.
+Correcao aplicada: CHECK (warranty_until is null or purchase_date is null
+  or warranty_until >= purchase_date).
+
+
+[V28] QUALIDADE - middleware.ts casava rotas por startsWith puro
+Arquivo: middleware.ts
+Descricao: PUBLIC_PATHS/ADMIN_PATHS eram comparados com
+  `path.startsWith(p)` - uma rota futura como "/login-ajuda" seria tratada
+  como publica (sem autenticacao) so por comecar com "/login", sem nenhum
+  teste capturando isso.
+Correcao aplicada: comparacao por segmento exato (`path === p || path.
+  startsWith(p + "/")`).
+
+
+[V29] QUALIDADE - Header x-nonce morto
+Arquivo: middleware.ts
+Descricao: setado no request mas nunca lido por nada no projeto - o nonce
+  que de fato protege os scripts do App Router chega via o header
+  Content-Security-Policy (deteccao automatica do Next), nao via x-nonce.
+Correcao aplicada: linha removida.
+
+
+[V30] QUALIDADE - Campo de formulario sem label acessivel
+Arquivo: app/dashboard/hardware/page.tsx (modal de check-in, campo
+  "detalhes do problema")
+Descricao: unico campo do formulario sem Field/htmlFor associado - so tinha
+  placeholder, que nao e substituto confiavel de nome acessivel para
+  leitores de tela.
+Correcao aplicada: envolvido em Field com htmlFor/id, no mesmo padrao dos
+  demais campos.
+
+
+------------------------------------------------------------------------------
+ACHADOS NAO CORRIGIDOS NESTA RODADA (decisao registrada - exigem decisao de
+produto/escopo maior antes de virar codigo)
+------------------------------------------------------------------------------
+- Paginacao/N+1: praticamente todas as paginas de listagem (relatorios,
+  inventario de hardware, telefonia, catalogo, aprovacoes, wiki) buscam
+  todas as linhas sem paginacao; os somatorios financeiros do Dashboard
+  Executivo sao calculados em JavaScript depois de baixar todas as linhas em
+  vez de agregacao SQL; e duas paginas fazem createSignedUrl em loop
+  sequencial por linha (sem Promise.all). Nao dói com o volume de dados
+  atual (ambiente de teste praticamente vazio), mas e uma bomba-relogio de
+  performance/DoS de app em producao com volume real.
+- is_manager_of(target_id) e uma function RPC executavel por qualquer
+  usuario autenticado com qualquer target_id (GRANT EXECUTE necessario para
+  a RLS poder chama-la) - funciona como oraculo de organograma (sondar "sou
+  eu o gestor deste ID?" para ids arbitrarios). Nao e escalonamento de
+  privilegio, mas e exposicao maior que is_admin()/current_role(), que so
+  revelam dado do proprio chamador.
+- hardware_contracts permite DELETE via policy "for all" para admin_ti,
+  enquanto hardware_checkins deliberadamente nao tem NENHUMA policy de
+  DELETE - inconsistencia entre duas tabelas que o proprio schema descreve
+  como registro historico "que nunca deveria ser apagado". Precisa de
+  decisao de produto sobre se contratos assinados podem mesmo ser excluidos.
+- hardware_checkins_insert verifica so assigned_to = auth.uid(), sem checar
+  hardware_assets.status - um check-in pode ser aberto para um ativo ja
+  baixado/extraviado/em_manutencao. Pode ser intencional, mas nao ha decisao
+  explicita registrada em codigo/comentario.
+- V3 (upgrade major do Next.js) - pendencia ja conhecida da auditoria
+  anterior, continua nao executada.
+
+
+------------------------------------------------------------------------------
+VERIFICACAO (sessao adicional)
+------------------------------------------------------------------------------
+`npm test`: 52/52 (sem alteracao no numero de testes - nenhum teste novo foi
+escrito para os achados V15-V30 nesta rodada, a verificacao foi feita via
+pentest ativo ao vivo contra o banco/API reais, nao via suite automatizada).
+`tsc --noEmit`, `eslint .`, `npm run build`: limpos. Playwright contra build
+local apontando para o banco de teste real: as 12 rotas do dashboard
+carregam sem console errors/page errors; fluxo funcional completo (criar
+solicitacao -> aprovacoes -> aprovar -> tentar reabrir bloqueado) validado
+na UI, alem de todos os reexploits diretos via API/SQL descritos em cada
+achado acima.
+
+Recomendacao para uma proxima rodada: escrever testes de regressao
+automatizados (Vitest, seguindo o padrao de test/unit/regression/) para pelo
+menos V16 (auto-aprovacao) e V18 (estado terminal), que sao os dois achados
+desta rodada com maior risco pratico e mais faceis de regredir
+silenciosamente numa futura alteracao de policy.
+
+==============================================================================
+FIM DO RELATORIO
+==============================================================================

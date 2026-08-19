@@ -1,38 +1,21 @@
-import { Phone, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createMobileLineAction, updateMobileLineAction } from "./actions";
+import { createMobileLineAction } from "./actions";
+import { LINE_TYPE_LABELS, STATUS_LABELS } from "./labels";
+import { LineList } from "./line-list";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
-import { Card, Section } from "@/components/ui/card";
+import { Section } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
-import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { StatCard } from "@/components/ui/stat-card";
-import { EmptyState } from "@/components/ui/empty-state";
 
-const LINE_TYPE_LABELS: Record<string, string> = {
-  sim_fisico: "SIM físico",
-  esim: "eSIM",
-};
-
-const STATUS_LABELS = {
-  ativa: "Ativa",
-  suspensa: "Suspensa",
-  cancelada: "Cancelada",
-} as const;
-
-const STATUS_TONE = {
-  ativa: "success",
-  suspensa: "warning",
-  cancelada: "neutral",
-} as const satisfies Record<keyof typeof STATUS_LABELS, BadgeTone>;
-
-type MobileLineRow = {
+export type MobileLineRow = {
   id: string;
   phone_number: string;
   carrier: string;
@@ -163,107 +146,7 @@ export default async function TelefoniaAdminPage({
       />
 
       <Section title="Linhas cadastradas">
-        {!lines || lines.length === 0 ? (
-          <EmptyState icon={Phone} title="Nenhuma linha cadastrada ainda" />
-        ) : (
-          <ul className="space-y-4">
-            {lines.map((line) => (
-              <li key={line.id}>
-                <Card>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-slate-900">
-                        {line.phone_number} — {LINE_TYPE_LABELS[line.line_type]}
-                      </p>
-                      <p className="text-sm text-slate-500">
-                        {line.profiles
-                          ? `Com: ${line.profiles.full_name} (${line.profiles.email})`
-                          : line.departments
-                            ? `Setor: ${line.departments.name}`
-                            : "Sem responsável"}
-                      </p>
-                    </div>
-                    <Badge tone={STATUS_TONE[line.status]}>{STATUS_LABELS[line.status]}</Badge>
-                  </div>
-
-                  <form
-                    action={updateMobileLineAction}
-                    className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"
-                  >
-                    <input type="hidden" name="id" value={line.id} />
-                    <Field label="Operadora" htmlFor={`carrier-${line.id}`}>
-                      <Input id={`carrier-${line.id}`} name="carrier" defaultValue={line.carrier} />
-                    </Field>
-                    <Field label="Plano" htmlFor={`plan-${line.id}`}>
-                      <Input id={`plan-${line.id}`} name="plan_name" defaultValue={line.plan_name} />
-                    </Field>
-                    <Field label="Custo (R$)" htmlFor={`cost-${line.id}`}>
-                      <Input
-                        id={`cost-${line.id}`}
-                        name="monthly_cost"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        defaultValue={line.monthly_cost}
-                      />
-                    </Field>
-                    <Field label="Tipo" htmlFor={`type-${line.id}`}>
-                      <Select id={`type-${line.id}`} name="line_type" defaultValue={line.line_type}>
-                        {Object.entries(LINE_TYPE_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Status" htmlFor={`status-${line.id}`}>
-                      <Select id={`status-${line.id}`} name="status" defaultValue={line.status}>
-                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Responsável" htmlFor={`assigned-${line.id}`}>
-                      <Select
-                        id={`assigned-${line.id}`}
-                        name="assigned_to"
-                        defaultValue={line.assigned_to ?? ""}
-                      >
-                        <option value="">Nenhum</option>
-                        {(profiles ?? []).map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.full_name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <Field label="Setor" htmlFor={`dept-${line.id}`}>
-                      <Select
-                        id={`dept-${line.id}`}
-                        name="department_id"
-                        defaultValue={line.department_id ?? ""}
-                      >
-                        <option value="">Nenhum</option>
-                        {(departments ?? []).map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <div className="flex items-end">
-                      <SubmitButton variant="outline" pendingLabel="Atualizando...">
-                        Atualizar
-                      </SubmitButton>
-                    </div>
-                  </form>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        )}
+        <LineList lines={lines ?? []} profiles={profiles ?? []} departments={departments ?? []} />
       </Section>
     </>
   );

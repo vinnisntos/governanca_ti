@@ -12,9 +12,11 @@
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-dialog": "^1.1.23",
+    "@react-pdf/renderer": "^4.6.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "lucide-react": "^1.31.0",
     "next": "^14.2.15",
     "react": "^18.3.1",

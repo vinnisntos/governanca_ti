@@ -10,6 +10,7 @@ import {
   Phone,
   PhoneCall,
   ShieldCheck,
+  Users,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -27,6 +28,13 @@ export function getNavGroups(role: string | null | undefined): NavGroup[] {
       items: [{ href: "/dashboard", label: "Início", icon: Home }],
     },
   ];
+
+  if (isAdmin) {
+    groups.push({
+      label: "Usuários",
+      items: [{ href: "/dashboard/admin/usuarios", label: "Usuários", icon: Users }],
+    });
+  }
 
   const acessos: NavItem[] = [
     { href: "/dashboard/meus-acessos", label: "Meus acessos", icon: ShieldCheck },

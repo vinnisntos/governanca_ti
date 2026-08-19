@@ -123,9 +123,10 @@ export default async function AccessRequestsPage({
                     <Badge tone={STATUS_TONE[request.status]}>{STATUS_LABELS[request.status]}</Badge>
                   </div>
 
-                  {request.status === "negado" && request.review_notes ? (
-                    <Alert tone="danger" className="mt-3">
-                      Motivo da recusa: {request.review_notes}
+                  {request.review_notes ? (
+                    <Alert tone={request.status === "negado" ? "danger" : "info"} className="mt-3">
+                      {request.status === "negado" ? "Motivo da recusa: " : "Observação: "}
+                      {request.review_notes}
                     </Alert>
                   ) : null}
 

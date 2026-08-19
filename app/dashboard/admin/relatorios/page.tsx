@@ -1,62 +1,25 @@
 import { redirect } from "next/navigation";
-import { ClipboardX, Gauge, KeySquare, Phone, ScrollText } from "lucide-react";
+import { ClipboardX, Download, Gauge, KeySquare, Phone } from "lucide-react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
+import { ACCESS_REQUEST_STATUSES, ACCESS_STATUS_LABELS } from "./labels";
+import type { AuditLogRow, DeniedRequestRow, PendingCheckinAssetRow } from "./types";
+import { AuditLogList } from "./audit-log-list";
+import { DATASET_KEYS, DATASET_LABELS } from "@/lib/reports/datasets";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, Section } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { Modal } from "@/components/ui/modal";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // Arquitetura alinhada com as diretrizes do ADR Master.
 // Módulo 5: Relatórios e Auditoria (Dashboard Executivo).
 // Autorização real é a policy audit_logs_select_admin (RLS) — só admin_ti
 // consegue de fato ler audit_logs; o middleware bloqueando /dashboard/admin
 // para quem não é admin_ti é só o atalho de UX.
-
-const ACCESS_REQUEST_STATUSES = [
-  "pendente",
-  "em_analise",
-  "aprovado",
-  "negado",
-  "cancelado",
-] as const;
-
-const STATUS_LABELS = {
-  pendente: "Pendentes",
-  em_analise: "Em análise",
-  aprovado: "Aprovadas",
-  negado: "Negadas",
-  cancelado: "Canceladas",
-} as const;
-
-const ACTION_LABELS: Record<string, string> = {
-  INSERT: "Criação",
-  UPDATE: "Alteração",
-  DELETE: "Exclusão",
-};
-
-type DeniedRequestRow = {
-  id: string;
-  review_notes: string | null;
-  decision_at: string | null;
-  access_catalog: { name: string } | null;
-  requested_system_name: string | null;
-  requester: { full_name: string } | null;
-};
-
-type PendingCheckinAssetRow = {
-  id: string;
-  asset_tag: string;
-  profiles: { full_name: string } | null;
-};
-
-type AuditLogRow = {
-  id: number;
-  table_name: string;
-  action: string;
-  created_at: string;
-  profiles: { full_name: string } | null;
-};
 
 function currency(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -137,12 +100,47 @@ export default async function ExecutiveDashboardPage() {
 
   return (
     <>
-      <PageHeader title="Dashboard Executivo" description="Visão consolidada de custos, aprovações e auditoria." />
+      <PageHeader
+        title="Dashboard Executivo"
+        description="Visão consolidada de custos, aprovações e auditoria."
+        actions={
+          <Modal
+            title="Exportar relatório"
+            description="Escolha os dados e o formato do arquivo."
+            trigger={
+              <Button variant="outline">
+                <Download className="h-4 w-4" aria-hidden />
+                Exportar
+              </Button>
+            }
+          >
+            <form method="GET" action="/dashboard/admin/relatorios/export" target="_blank" className="space-y-4">
+              <fieldset className="space-y-2">
+                <legend className="mb-1 text-sm font-medium text-slate-700">Dados a incluir</legend>
+                {DATASET_KEYS.map((key) => (
+                  <label key={key} className="flex items-center gap-2 text-sm text-slate-700">
+                    <Checkbox name="datasets" value={key} defaultChecked />
+                    {DATASET_LABELS[key]}
+                  </label>
+                ))}
+              </fieldset>
+              <div className="flex justify-end gap-2">
+                <SubmitButton name="format" value="xlsx" variant="outline" pendingLabel="Gerando...">
+                  Exportar .xlsx
+                </SubmitButton>
+                <SubmitButton name="format" value="pdf" variant="primary" pendingLabel="Gerando...">
+                  Exportar .pdf
+                </SubmitButton>
+              </div>
+            </form>
+          </Modal>
+        }
+      />
 
       <Section title="Solicitações de acesso" className="mb-8">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {statusCounts.map(({ status, count }) => (
-            <StatCard key={status} label={STATUS_LABELS[status]} value={count} />
+            <StatCard key={status} label={ACCESS_STATUS_LABELS[status]} value={count} />
           ))}
         </div>
       </Section>
@@ -213,34 +211,7 @@ export default async function ExecutiveDashboardPage() {
       </Section>
 
       <Section title="Trilha de auditoria (últimas 50 ações)">
-        {!auditLogs || auditLogs.length === 0 ? (
-          <EmptyState icon={ScrollText} title="Nenhum evento registrado ainda" />
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs font-medium text-slate-500">
-                <tr>
-                  <th className="px-3 py-2.5">Quando</th>
-                  <th className="px-3 py-2.5">Quem</th>
-                  <th className="px-3 py-2.5">Ação</th>
-                  <th className="px-3 py-2.5">Tabela</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditLogs.map((log) => (
-                  <tr key={log.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                    <td className="px-3 py-2.5 text-slate-500">
-                      {new Date(log.created_at).toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-3 py-2.5 text-slate-900">{log.profiles?.full_name ?? "—"}</td>
-                    <td className="px-3 py-2.5">{ACTION_LABELS[log.action] ?? log.action}</td>
-                    <td className="px-3 py-2.5 text-slate-500">{log.table_name}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <AuditLogList logs={auditLogs ?? []} />
       </Section>
     </>
   );
