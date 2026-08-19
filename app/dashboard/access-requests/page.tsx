@@ -19,6 +19,7 @@ const STATUS_LABELS = {
   aprovado: "Aprovado",
   negado: "Negado",
   cancelado: "Cancelado",
+  revogado: "Revogado",
 } as const;
 
 const STATUS_TONE = {
@@ -27,6 +28,7 @@ const STATUS_TONE = {
   aprovado: "success",
   negado: "danger",
   cancelado: "neutral",
+  revogado: "danger",
 } as const;
 
 type AccessRequestRow = {
@@ -34,6 +36,7 @@ type AccessRequestRow = {
   justification: string;
   status: keyof typeof STATUS_LABELS;
   review_notes: string | null;
+  revoke_reason: string | null;
   decision_at: string | null;
   created_at: string;
   access_catalog: { name: string } | null;
@@ -65,7 +68,7 @@ export default async function AccessRequestsPage({
     supabase
       .from("access_requests")
       .select(
-        "id, justification, status, review_notes, decision_at, created_at, requested_system_name, access_catalog(name)"
+        "id, justification, status, review_notes, revoke_reason, decision_at, created_at, requested_system_name, access_catalog(name)"
       )
       .eq("requester_id", user.id)
       .order("created_at", { ascending: false })
@@ -127,6 +130,13 @@ export default async function AccessRequestsPage({
                     <Alert tone={request.status === "negado" ? "danger" : "info"} className="mt-3">
                       {request.status === "negado" ? "Motivo da recusa: " : "Observação: "}
                       {request.review_notes}
+                    </Alert>
+                  ) : null}
+
+                  {request.status === "revogado" ? (
+                    <Alert tone="danger" className="mt-3">
+                      Acesso revogado.
+                      {request.revoke_reason ? ` Motivo: ${request.revoke_reason}` : ""}
                     </Alert>
                   ) : null}
 

@@ -57,3 +57,15 @@ export const decideAccessRequestSchema = z
   );
 
 export type DecideAccessRequestInput = z.infer<typeof decideAccessRequestSchema>;
+
+// Usado por admin_ti para encerrar um acesso já aprovado (ver
+// supabase/migrations/0005_revoke_access.sql — só a transição
+// aprovado -> revogado é permitida pela trigger/RLS).
+export const revokeAccessSchema = z
+  .object({
+    request_id: z.string().uuid(),
+    revoke_reason: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+
+export type RevokeAccessInput = z.infer<typeof revokeAccessSchema>;

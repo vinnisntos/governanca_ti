@@ -11,6 +11,7 @@ import {
   Phone,
   PhoneCall,
   ShieldCheck,
+  ShieldX,
   Users,
   Wrench,
   type LucideIcon,
@@ -49,6 +50,7 @@ export function getNavGroups(role: string | null | undefined): NavGroup[] {
   }
   if (isAdmin) {
     acessos.push({ href: "/dashboard/admin/catalogo", label: "Catálogo de acessos", icon: ListChecks });
+    acessos.push({ href: "/dashboard/admin/acessos-concedidos", label: "Acessos concedidos", icon: ShieldX });
   }
   groups.push({ label: "Acessos", items: acessos });
 
