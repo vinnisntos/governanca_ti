@@ -10,6 +10,7 @@ import { updateSession } from "@/lib/supabase/middleware";
 // operações não autorizadas.
 const PUBLIC_PATHS = ["/login"];
 const ADMIN_PATHS = ["/dashboard/admin"];
+const FIRST_ACCESS_PATH = "/primeiro-acesso";
 
 // Nonce por requisição para a CSP: o App Router injeta o payload de RSC via
 // <script> inline (self.__next_f.push(...)) durante a hidratação — sem um
@@ -71,15 +72,29 @@ export async function middleware(request: NextRequest) {
     return redirectWithSession(request, supabaseResponse, csp, "/dashboard");
   }
 
-  if (user && ADMIN_PATHS.some((p) => matchesPath(path, p))) {
+  if (user) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, is_active")
+      .select("role, is_active, must_change_password")
       .eq("id", user.id)
       .single();
 
-    if (profile?.role !== "admin_ti" || !profile.is_active) {
+    // Senha descartável (criada pelo admin_ti ou redefinida por ele): força
+    // a troca antes de liberar qualquer outra rota do portal. Checado antes
+    // do gate de admin de propósito — um admin_ti recém-criado por outro
+    // admin também precisa trocar a senha antes de acessar /dashboard/admin.
+    if (profile?.must_change_password && path !== FIRST_ACCESS_PATH) {
+      return redirectWithSession(request, supabaseResponse, csp, FIRST_ACCESS_PATH);
+    }
+
+    if (!profile?.must_change_password && path === FIRST_ACCESS_PATH) {
       return redirectWithSession(request, supabaseResponse, csp, "/dashboard");
+    }
+
+    if (ADMIN_PATHS.some((p) => matchesPath(path, p))) {
+      if (profile?.role !== "admin_ti" || !profile.is_active) {
+        return redirectWithSession(request, supabaseResponse, csp, "/dashboard");
+      }
     }
   }
 

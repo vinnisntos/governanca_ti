@@ -17,3 +17,15 @@ export const updateUserSchema = z
   .strict();
 
 export type UpdateUserInput = z.infer<typeof updateUserSchema>;
+
+export const createUserSchema = z
+  .object({
+    full_name: z.string().trim().min(2, "Informe o nome completo").max(120),
+    email: z.string().trim().toLowerCase().email("E-mail inválido").max(255),
+    role: userRoleSchema,
+    department_id: z.string().uuid().nullable().optional(),
+    manager_id: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+export type CreateUserInput = z.infer<typeof createUserSchema>;

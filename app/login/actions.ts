@@ -35,7 +35,7 @@ export async function loginAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.signInWithPassword(parsed.data);
+  const { data: signInData, error } = await supabase.auth.signInWithPassword(parsed.data);
 
   if (error) {
     // Mensagem genérica: nunca expor se foi o e-mail ou a senha que falhou
@@ -44,5 +44,19 @@ export async function loginAction(
     return { error: "E-mail ou senha inválidos." };
   }
 
-  redirect("/dashboard");
+  // Redireciona direto para /primeiro-acesso quando aplicável, em vez de
+  // depender só do middleware pegar isso na requisição seguinte: um
+  // redirect() de Server Action que o middleware intercepta e redireciona de
+  // novo confunde o roteador client-side do Next.js (a barra de endereço fica
+  // com o destino original da action — /dashboard — mesmo o conteúdo servido
+  // sendo o da segunda página). O middleware continua sendo a autoridade real
+  // (bloqueia navegação direta/back-forward para outras rotas), isto aqui é
+  // só para o primeiro redirect pós-login já sair certo.
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("must_change_password")
+    .eq("id", signInData.user.id)
+    .single();
+
+  redirect(profile?.must_change_password ? "/primeiro-acesso" : "/dashboard");
 }

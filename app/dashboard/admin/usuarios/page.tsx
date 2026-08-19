@@ -1,9 +1,19 @@
+import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createUserAction } from "./actions";
 import { UserList } from "./user-list";
+import { TempPasswordAlert } from "./temp-password-alert";
+import { readTempPasswordFlash } from "@/lib/utils/temp-password-flash";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Section } from "@/components/ui/card";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { Modal } from "@/components/ui/modal";
 
 export type UserRole = "colaborador" | "gestor" | "rh" | "admin_ti";
 
@@ -15,6 +25,7 @@ export type UserRow = {
   department_id: string | null;
   manager_id: string | null;
   is_active: boolean;
+  must_change_password: boolean;
   departments: { name: string } | null;
   manager_full_name: string | null;
 };
@@ -44,13 +55,16 @@ export default async function UsersAdminPage({
   // pessoa gerencia" em vez de "quem é o gestor desta pessoa" — o nome do
   // gestor sai sempre vazio. Resolvemos manualmente com um mapa em memória
   // (a tabela de usuários é pequena; não justifica outra query por linha).
-  const [{ data: rawUsers }, { data: departments }] = await Promise.all([
+  const [{ data: rawUsers }, { data: departments }, tempPassword] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, full_name, email, role, department_id, manager_id, is_active, departments(name)")
+      .select(
+        "id, full_name, email, role, department_id, manager_id, is_active, must_change_password, departments(name)"
+      )
       .order("full_name")
       .returns<Omit<UserRow, "manager_full_name">[]>(),
     supabase.from("departments").select("id, name").order("name"),
+    readTempPasswordFlash(),
   ]);
 
   const nameById = new Map((rawUsers ?? []).map((u) => [u.id, u.full_name]));
@@ -72,7 +86,71 @@ export default async function UsersAdminPage({
       <PageHeader
         title="Usuários"
         description="Papel, departamento e gestor de cada usuário — o gestor definido aqui é quem enxerga e decide as solicitações de acesso da pessoa em 'Aprovações pendentes'."
+        actions={
+          <Modal
+            title="Novo usuário"
+            trigger={
+              <Button variant="primary">
+                <Plus className="h-4 w-4" aria-hidden />
+                Novo usuário
+              </Button>
+            }
+          >
+            <form action={createUserAction} className="space-y-4">
+              <Field label="Nome completo" htmlFor="full_name" required>
+                <Input id="full_name" name="full_name" required minLength={2} placeholder="Ex.: Maria Silva" />
+              </Field>
+
+              <Field label="E-mail" htmlFor="email" required hint="Vai ser o login do usuário">
+                <Input id="email" name="email" type="email" required placeholder="nome@empresa.com" />
+              </Field>
+
+              <Field label="Papel" htmlFor="role" required>
+                <Select id="role" name="role" defaultValue="colaborador">
+                  <option value="colaborador">Colaborador</option>
+                  <option value="gestor">Gestor</option>
+                  <option value="rh">RH</option>
+                  <option value="admin_ti">Admin TI</option>
+                </Select>
+              </Field>
+
+              <Field label="Departamento" htmlFor="department_id" hint="Opcional">
+                <Select id="department_id" name="department_id" defaultValue="">
+                  <option value="">Nenhum</option>
+                  {(departments ?? []).map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              <Field
+                label="Gestor responsável"
+                htmlFor="manager_id"
+                hint="Quem vai decidir as solicitações de acesso deste usuário"
+              >
+                <Select id="manager_id" name="manager_id" defaultValue="">
+                  <option value="">Sem gestor</option>
+                  {managers.map((manager) => (
+                    <option key={manager.id} value={manager.id}>
+                      {manager.full_name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+
+              <div className="flex justify-end">
+                <SubmitButton variant="primary" pendingLabel="Criando...">
+                  Criar usuário
+                </SubmitButton>
+              </div>
+            </form>
+          </Modal>
+        }
       />
+
+      {tempPassword ? <TempPasswordAlert email={tempPassword.email} password={tempPassword.password} /> : null}
 
       <Section title="Usuários cadastrados">
         <UserList

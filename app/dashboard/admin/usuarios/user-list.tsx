@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Pencil, Users as UsersIcon } from "lucide-react";
-import { updateUserAction } from "./actions";
+import { KeyRound, Pencil, Users as UsersIcon } from "lucide-react";
+import { resetUserPasswordAction, updateUserAction } from "./actions";
 import type { UserRole, UserRow } from "./page";
 import { matchesSearch } from "@/lib/utils/normalize-text";
 import { SearchInput } from "@/components/ui/search-input";
@@ -14,6 +14,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
 import { badgeClassName } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 
 type Department = { id: string; name: string };
 type ManagerOption = { id: string; full_name: string; role: UserRole };
@@ -76,21 +77,42 @@ export function UserList({
                 </div>
 
                 <div className="flex shrink-0 flex-col items-end gap-2">
-                  <span className={badgeClassName(item.is_active ? "success" : "neutral")}>
-                    {item.is_active ? "Ativo" : "Inativo"}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {item.must_change_password ? (
+                      <span className={badgeClassName("warning")}>Aguardando 1º acesso</span>
+                    ) : null}
+                    <span className={badgeClassName(item.is_active ? "success" : "neutral")}>
+                      {item.is_active ? "Ativo" : "Inativo"}
+                    </span>
+                  </div>
 
                   {item.id === currentUserId ? (
                     <span className="text-xs italic text-slate-400">Você</span>
                   ) : (
-                    <Modal
-                      title={`Editar ${item.full_name}`}
-                      trigger={
-                        <Button variant="ghost" size="icon" aria-label={`Editar ${item.full_name}`}>
-                          <Pencil className="h-4 w-4" aria-hidden />
-                        </Button>
-                      }
-                    >
+                    <div className="flex items-center gap-1.5">
+                      <form action={resetUserPasswordAction}>
+                        <input type="hidden" name="id" value={item.id} />
+                        <ConfirmSubmitButton
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Redefinir senha de ${item.full_name}`}
+                          title={`Redefinir a senha de ${item.full_name}?`}
+                          description="Uma nova senha provisória será gerada e ele(a) precisará trocá-la no próximo login."
+                          confirmLabel="Redefinir senha"
+                          cancelLabel="Cancelar"
+                        >
+                          <KeyRound className="h-4 w-4" aria-hidden />
+                        </ConfirmSubmitButton>
+                      </form>
+
+                      <Modal
+                        title={`Editar ${item.full_name}`}
+                        trigger={
+                          <Button variant="ghost" size="icon" aria-label={`Editar ${item.full_name}`}>
+                            <Pencil className="h-4 w-4" aria-hidden />
+                          </Button>
+                        }
+                      >
                       <form action={updateUserAction} className="space-y-4">
                         <input type="hidden" name="id" value={item.id} />
 
@@ -152,7 +174,8 @@ export function UserList({
                           </SubmitButton>
                         </div>
                       </form>
-                    </Modal>
+                      </Modal>
+                    </div>
                   )}
                 </div>
               </Card>
