@@ -2,6 +2,7 @@ import {
   BarChart3,
   BookOpen,
   Boxes,
+  Building2,
   ClipboardCheck,
   Home,
   KeyRound,
@@ -32,7 +33,10 @@ export function getNavGroups(role: string | null | undefined): NavGroup[] {
   if (isAdmin) {
     groups.push({
       label: "Usuários",
-      items: [{ href: "/dashboard/admin/usuarios", label: "Usuários", icon: Users }],
+      items: [
+        { href: "/dashboard/admin/usuarios", label: "Usuários", icon: Users },
+        { href: "/dashboard/admin/departamentos", label: "Departamentos", icon: Building2 },
+      ],
     });
   }
 
