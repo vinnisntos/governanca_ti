@@ -159,7 +159,7 @@ export default async function ExecutiveDashboardPage() {
                   {" — "}
                   {r.requester?.full_name ?? "Colaborador removido"}
                   {r.decision_at ? ` (${new Date(r.decision_at).toLocaleDateString("pt-BR")})` : ""}
-                  {r.review_notes ? <p className="mt-1 text-slate-500">Motivo: {r.review_notes}</p> : null}
+                  {r.review_notes ? <p className="mt-1 text-slate-600">Motivo: {r.review_notes}</p> : null}
                 </Card>
               </li>
             ))}
@@ -182,11 +182,11 @@ export default async function ExecutiveDashboardPage() {
       <Section title="Adesão ao check-in mensal de hardware" className="mb-8">
         <Card>
           {adherenceRate === null ? (
-            <p className="text-sm text-slate-500">Nenhum equipamento atribuído no momento.</p>
+            <p className="text-sm text-slate-600">Nenhum equipamento atribuído no momento.</p>
           ) : (
             <>
               <p className="text-2xl font-semibold text-slate-900">{adherenceRate}%</p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-600">
                 {checkinsThisMonthCount ?? 0} de {assignedAssetsCount} equipamentos atribuídos já fizeram o
                 check-in deste mês.
               </p>
@@ -194,7 +194,7 @@ export default async function ExecutiveDashboardPage() {
           )}
 
           {pendingCheckinAssets.length > 0 ? (
-            <details className="mt-3 text-sm text-slate-500">
+            <details className="mt-3 text-sm text-slate-600">
               <summary className="cursor-pointer font-medium text-slate-600 hover:text-slate-800">
                 {pendingCheckinAssets.length} equipamento(s) pendente(s) este mês
               </summary>

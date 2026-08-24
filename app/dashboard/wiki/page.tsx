@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
-import { badgeClassName } from "@/components/ui/badge";
+import { StatusToggleButton } from "@/components/ui/status-toggle";
 import { EmptyState } from "@/components/ui/empty-state";
 
 type CategoryRow = {
@@ -159,7 +159,7 @@ export default async function WikiPage({
                     {article.title}
                   </Link>
                   {article.knowledge_base_categories ? (
-                    <p className="text-xs text-slate-400">{article.knowledge_base_categories.name}</p>
+                    <p className="text-xs text-slate-600">{article.knowledge_base_categories.name}</p>
                   ) : null}
                 </div>
 
@@ -171,12 +171,16 @@ export default async function WikiPage({
                       name="next_published"
                       value={(!article.is_published).toString()}
                     />
-                    <button
-                      type="submit"
-                      className={badgeClassName(article.is_published ? "success" : "neutral")}
-                    >
-                      {article.is_published ? "Publicado" : "Rascunho"}
-                    </button>
+                    <StatusToggleButton
+                      active={article.is_published}
+                      activeLabel="Publicado"
+                      inactiveLabel="Rascunho"
+                      actionLabel={
+                        article.is_published
+                          ? `Marcar "${article.title}" como rascunho`
+                          : `Publicar "${article.title}"`
+                      }
+                    />
                   </form>
                 ) : null}
               </Card>

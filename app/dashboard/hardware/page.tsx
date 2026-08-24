@@ -147,7 +147,7 @@ export default async function HardwarePage({
                 <Card>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
                         <Laptop2 className="h-4 w-4" aria-hidden />
                       </div>
                       <p className="font-medium text-slate-900">
@@ -230,7 +230,7 @@ export default async function HardwarePage({
                   </div>
 
                   {history.length > 0 ? (
-                    <details className="mt-3 text-sm text-slate-500">
+                    <details className="mt-3 text-sm text-slate-600">
                       <summary className="cursor-pointer font-medium text-slate-600 hover:text-slate-800">
                         Histórico de check-ins ({history.length})
                       </summary>

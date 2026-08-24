@@ -1,14 +1,10 @@
 import { ClipboardCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { decideAccessRequestAction } from "./actions";
+import { DecisionForm } from "./decision-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Card } from "@/components/ui/card";
-import { Field } from "@/components/ui/field";
-import { Textarea } from "@/components/ui/textarea";
-import { SubmitButton } from "@/components/ui/submit-button";
-import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { EmptyState } from "@/components/ui/empty-state";
 
 type PendingRequestRow = {
@@ -99,42 +95,12 @@ export default async function ApprovalsPage({
                     </span>
                   ) : null}
                 </p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-slate-600">
                   Solicitado por {request.requester?.full_name} ({request.requester?.email})
                 </p>
                 <p className="mt-2 text-sm text-slate-700">{request.justification}</p>
 
-                <form action={decideAccessRequestAction} className="mt-4 space-y-3">
-                  <input type="hidden" name="request_id" value={request.id} />
-                  <Field
-                    label="Observações"
-                    htmlFor={`notes-${request.id}`}
-                    hint="Obrigatório em caso de recusa"
-                  >
-                    <Textarea id={`notes-${request.id}`} name="review_notes" rows={2} />
-                  </Field>
-                  <div className="flex gap-2">
-                    <SubmitButton
-                      name="decision"
-                      value="aprovado"
-                      variant="primary"
-                      pendingLabel="Aprovando..."
-                    >
-                      Aprovar
-                    </SubmitButton>
-                    <ConfirmSubmitButton
-                      name="decision"
-                      value="negado"
-                      variant="destructive"
-                      title="Recusar esta solicitação?"
-                      description="O solicitante será notificado e poderá ver o motivo informado no campo de observações."
-                      confirmLabel="Recusar solicitação"
-                      cancelLabel="Voltar"
-                    >
-                      Recusar
-                    </ConfirmSubmitButton>
-                  </div>
-                </form>
+                <DecisionForm requestId={request.id} />
               </Card>
             </li>
           ))}

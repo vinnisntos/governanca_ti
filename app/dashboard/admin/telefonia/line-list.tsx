@@ -70,7 +70,7 @@ export function LineList({
                     <p className="font-medium text-slate-900">
                       {line.phone_number} — {LINE_TYPE_LABELS[line.line_type]}
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-600">
                       {line.profiles
                         ? `Com: ${line.profiles.full_name} (${line.profiles.email})`
                         : line.departments
@@ -83,7 +83,7 @@ export function LineList({
 
                 <form
                   action={updateMobileLineAction}
-                  className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"
+                  className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4"
                 >
                   <input type="hidden" name="id" value={line.id} />
                   <Field label="Operadora" htmlFor={`carrier-${line.id}`}>
@@ -92,7 +92,7 @@ export function LineList({
                   <Field label="Plano" htmlFor={`plan-${line.id}`}>
                     <Input id={`plan-${line.id}`} name="plan_name" defaultValue={line.plan_name} />
                   </Field>
-                  <Field label="Custo (R$)" htmlFor={`cost-${line.id}`}>
+                  <Field label="Custo (R$)" htmlFor={`cost-${line.id}`} hint="Use ponto para casas decimais, ex.: 49.90">
                     <Input
                       id={`cost-${line.id}`}
                       name="monthly_cost"

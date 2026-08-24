@@ -28,7 +28,7 @@ export function SidebarContent({
 
       <div className="border-t border-slate-200 pt-3">
         <p className="truncate px-4 text-sm font-medium text-slate-900">{fullName ?? email}</p>
-        <p className="truncate px-4 text-xs capitalize text-slate-500">{role ?? "colaborador"}</p>
+        <p className="truncate px-4 text-xs capitalize text-slate-600">{role ?? "colaborador"}</p>
         <form action={signOutAction} className="mt-2 px-2">
           <SubmitButton
             variant="ghost"

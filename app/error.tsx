@@ -22,7 +22,7 @@ export default function ErrorBoundary({
         <div className="flex flex-col items-center gap-2">
           <AlertTriangle className="h-8 w-8 text-red-600" aria-hidden />
           <h1 className="text-base font-semibold text-slate-900">Ocorreu um erro inesperado</h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-600">
             Algo deu errado ao carregar esta página. Você pode tentar novamente ou recarregar o
             navegador.
           </p>
@@ -35,7 +35,7 @@ export default function ErrorBoundary({
         ) : null}
 
         {error.digest ? (
-          <p className="text-xs text-slate-400">Código de referência: {error.digest}</p>
+          <p className="text-xs text-slate-600">Código de referência: {error.digest}</p>
         ) : null}
 
         <div className="flex justify-center gap-2">

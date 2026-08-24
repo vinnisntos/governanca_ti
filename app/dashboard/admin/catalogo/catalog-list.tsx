@@ -18,7 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
-import { badgeClassName } from "@/components/ui/badge";
+import { StatusToggleButton } from "@/components/ui/status-toggle";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 
@@ -57,10 +57,10 @@ export function CatalogList({ catalog, departments }: { catalog: CatalogRow[]; d
                   <p className="font-medium text-slate-900">{item.name}</p>
                   {item.description ? <p className="text-sm text-slate-600">{item.description}</p> : null}
                   {item.departments?.name ? (
-                    <p className="text-xs text-slate-400">Depto.: {item.departments.name}</p>
+                    <p className="text-xs text-slate-600">Depto.: {item.departments.name}</p>
                   ) : null}
                   {item.monthly_cost != null ? (
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-600">
                       Custo:{" "}
                       {Number(item.monthly_cost).toLocaleString("pt-BR", {
                         style: "currency",
@@ -75,9 +75,12 @@ export function CatalogList({ catalog, departments }: { catalog: CatalogRow[]; d
                   <form action={toggleCatalogItemActiveAction}>
                     <input type="hidden" name="id" value={item.id} />
                     <input type="hidden" name="next_active" value={(!item.is_active).toString()} />
-                    <button type="submit" className={badgeClassName(item.is_active ? "success" : "neutral")}>
-                      {item.is_active ? "Ativo" : "Inativo"}
-                    </button>
+                    <StatusToggleButton
+                      active={item.is_active}
+                      activeLabel="Ativo"
+                      inactiveLabel="Inativo"
+                      actionLabel={item.is_active ? `Desativar ${item.name}` : `Ativar ${item.name}`}
+                    />
                   </form>
 
                   <div className="flex items-center gap-1.5">
@@ -108,7 +111,7 @@ export function CatalogList({ catalog, departments }: { catalog: CatalogRow[]; d
                         <Field
                           label="Custo mensal da licença (R$)"
                           htmlFor={`monthly_cost-${item.id}`}
-                          hint="Opcional"
+                          hint="Opcional — use ponto para casas decimais, ex.: 49.90"
                         >
                           <Input
                             id={`monthly_cost-${item.id}`}

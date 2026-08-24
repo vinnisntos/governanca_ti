@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createAccessRequestAction } from "../access-requests/actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { Section, Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, LinkButton } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RequestAccessForm } from "@/components/access/request-access-form";
@@ -56,17 +56,22 @@ export default async function MyAccessPage() {
         title="Meus acessos"
         description="Ferramentas e sistemas que você tem acesso hoje."
         actions={
-          <Modal
-            title="Solicitar acesso"
-            trigger={
-              <Button variant="primary">
-                <Plus className="h-4 w-4" aria-hidden />
-                Solicitar acesso
-              </Button>
-            }
-          >
-            <RequestAccessForm action={createAccessRequestAction} catalog={catalog ?? []} />
-          </Modal>
+          <>
+            <LinkButton href="/dashboard/access-requests" variant="outline">
+              Ver minhas solicitações
+            </LinkButton>
+            <Modal
+              title="Solicitar acesso"
+              trigger={
+                <Button variant="primary">
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Solicitar acesso
+                </Button>
+              }
+            >
+              <RequestAccessForm action={createAccessRequestAction} catalog={catalog ?? []} />
+            </Modal>
+          </>
         }
       />
 

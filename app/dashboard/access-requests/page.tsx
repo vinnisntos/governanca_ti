@@ -5,7 +5,7 @@ import { createAccessRequestAction, cancelAccessRequestAction } from "./actions"
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Section, Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, LinkButton } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -83,17 +83,22 @@ export default async function AccessRequestsPage({
         title="Minhas solicitações de acesso"
         description="Peça acesso a sistemas e acompanhe o status das suas solicitações."
         actions={
-          <Modal
-            title="Nova solicitação de acesso"
-            trigger={
-              <Button variant="primary">
-                <Plus className="h-4 w-4" aria-hidden />
-                Nova solicitação
-              </Button>
-            }
-          >
-            <RequestAccessForm action={createAccessRequestAction} catalog={catalog ?? []} />
-          </Modal>
+          <>
+            <LinkButton href="/dashboard/meus-acessos" variant="outline">
+              Ver meus acessos ativos
+            </LinkButton>
+            <Modal
+              title="Nova solicitação de acesso"
+              trigger={
+                <Button variant="primary">
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Nova solicitação
+                </Button>
+              }
+            >
+              <RequestAccessForm action={createAccessRequestAction} catalog={catalog ?? []} />
+            </Modal>
+          </>
         }
       />
 
@@ -116,7 +121,7 @@ export default async function AccessRequestsPage({
                           request.requested_system_name ??
                           "Sistema removido"}
                         {!request.access_catalog && request.requested_system_name ? (
-                          <span className="ml-2 text-xs font-normal text-slate-400">
+                          <span className="ml-2 text-xs font-normal text-slate-600">
                             (fora do catálogo)
                           </span>
                         ) : null}

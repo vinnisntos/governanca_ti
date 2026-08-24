@@ -72,7 +72,7 @@ export function GrantedAccessList({ grants }: { grants: GrantedAccessRow[] }) {
                         <p className="font-medium text-slate-900">{row.requester?.full_name}</p>
                         <p className="text-sm text-slate-600">{row.requester?.email}</p>
                         {row.decision_at ? (
-                          <p className="text-xs text-slate-400">
+                          <p className="text-xs text-slate-600">
                             Aprovado em {new Date(row.decision_at).toLocaleDateString("pt-BR")}
                           </p>
                         ) : null}

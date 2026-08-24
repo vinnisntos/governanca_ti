@@ -29,10 +29,7 @@ export async function createAccessRequestAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirectWithError(
-      PATH,
-      "Selecione um sistema (ou informe o nome) e descreva a justificativa (mín. 10 caracteres)."
-    );
+    redirectWithError(PATH, parsed.error.issues[0]?.message ?? "Dados inválidos para a solicitação.");
   }
 
   const supabase = await createSupabaseServerClient();

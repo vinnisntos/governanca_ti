@@ -68,7 +68,7 @@ export function UserList({
                 <div>
                   <p className="font-medium text-slate-900">{item.full_name}</p>
                   <p className="text-sm text-slate-600">{item.email}</p>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-slate-600">
                     {ROLE_LABELS[item.role]}
                     {item.departments?.name ? ` · ${item.departments.name}` : ""}
                     {" · "}
@@ -87,7 +87,7 @@ export function UserList({
                   </div>
 
                   {item.id === currentUserId ? (
-                    <span className="text-xs italic text-slate-400">Você</span>
+                    <span className="text-xs italic text-slate-600">Você</span>
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <form action={resetUserPasswordAction}>

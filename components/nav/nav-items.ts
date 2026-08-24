@@ -7,6 +7,7 @@ import {
   Home,
   KeyRound,
   Laptop,
+  LifeBuoy,
   ListChecks,
   Phone,
   PhoneCall,
@@ -20,6 +21,11 @@ import {
 export type NavItem = { href: string; label: string; icon: LucideIcon };
 export type NavGroup = { label: string; items: NavItem[] };
 
+// Grupos "de autoatendimento" (Acessos, Hardware, Telefonia, Conhecimento)
+// listam só o que qualquer colaborador usa no dia a dia. Tudo que é
+// back-office — configurar catálogo, inventário, usuários etc. — fica
+// isolado em "Administração" para não misturar "meu uso" com "eu administro
+// isso para a empresa toda" sob o mesmo rótulo de grupo.
 export function getNavGroups(role: string | null | undefined): NavGroup[] {
   const isAdmin = role === "admin_ti";
   const isApprover = isAdmin || role === "gestor";
@@ -31,16 +37,6 @@ export function getNavGroups(role: string | null | undefined): NavGroup[] {
     },
   ];
 
-  if (isAdmin) {
-    groups.push({
-      label: "Usuários",
-      items: [
-        { href: "/dashboard/admin/usuarios", label: "Usuários", icon: Users },
-        { href: "/dashboard/admin/departamentos", label: "Departamentos", icon: Building2 },
-      ],
-    });
-  }
-
   const acessos: NavItem[] = [
     { href: "/dashboard/meus-acessos", label: "Meus acessos", icon: ShieldCheck },
     { href: "/dashboard/access-requests", label: "Minhas solicitações", icon: KeyRound },
@@ -48,34 +44,42 @@ export function getNavGroups(role: string | null | undefined): NavGroup[] {
   if (isApprover) {
     acessos.push({ href: "/dashboard/approvals", label: "Aprovações pendentes", icon: ClipboardCheck });
   }
-  if (isAdmin) {
-    acessos.push({ href: "/dashboard/admin/catalogo", label: "Catálogo de acessos", icon: ListChecks });
-    acessos.push({ href: "/dashboard/admin/acessos-concedidos", label: "Acessos concedidos", icon: ShieldX });
-  }
   groups.push({ label: "Acessos", items: acessos });
 
-  const hardware: NavItem[] = [{ href: "/dashboard/hardware", label: "Meus equipamentos", icon: Laptop }];
-  if (isAdmin) {
-    hardware.push({ href: "/dashboard/admin/hardware", label: "Inventário de hardware", icon: Boxes });
-    hardware.push({ href: "/dashboard/admin/hardware/checkins", label: "Fila de manutenção", icon: Wrench });
-  }
-  groups.push({ label: "Hardware", items: hardware });
+  groups.push({
+    label: "Hardware",
+    items: [{ href: "/dashboard/hardware", label: "Meus equipamentos", icon: Laptop }],
+  });
 
-  const telefonia: NavItem[] = [{ href: "/dashboard/telefonia", label: "Minhas linhas", icon: Phone }];
-  if (isAdmin) {
-    telefonia.push({ href: "/dashboard/admin/telefonia", label: "Telefonia (admin)", icon: PhoneCall });
-  }
-  groups.push({ label: "Telefonia", items: telefonia });
+  groups.push({
+    label: "Telefonia",
+    items: [{ href: "/dashboard/telefonia", label: "Minhas linhas", icon: Phone }],
+  });
 
   groups.push({
     label: "Conhecimento",
     items: [{ href: "/dashboard/wiki", label: "Base de conhecimento", icon: BookOpen }],
   });
 
+  groups.push({
+    label: "Ajuda",
+    items: [{ href: "/dashboard/ajuda", label: "Central de Ajuda", icon: LifeBuoy }],
+  });
+
   if (isAdmin) {
     groups.push({
-      label: "Relatórios",
-      items: [{ href: "/dashboard/admin/relatorios", label: "Dashboard executivo", icon: BarChart3 }],
+      label: "Administração",
+      items: [
+        { href: "/dashboard/admin/usuarios", label: "Usuários", icon: Users },
+        { href: "/dashboard/admin/departamentos", label: "Departamentos", icon: Building2 },
+        { href: "/dashboard/admin/catalogo", label: "Catálogo de acessos", icon: ListChecks },
+        { href: "/dashboard/admin/acessos-concedidos", label: "Acessos concedidos", icon: ShieldX },
+        { href: "/dashboard/admin/hardware", label: "Inventário de hardware", icon: Boxes },
+        { href: "/dashboard/admin/hardware/checkins", label: "Fila de manutenção", icon: Wrench },
+        { href: "/dashboard/admin/telefonia", label: "Telefonia (admin)", icon: PhoneCall },
+        { href: "/dashboard/admin/chamados", label: "Chamados", icon: LifeBuoy },
+        { href: "/dashboard/admin/relatorios", label: "Dashboard executivo", icon: BarChart3 },
+      ],
     });
   }
 

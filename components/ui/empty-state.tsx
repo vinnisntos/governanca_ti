@@ -22,9 +22,9 @@ export function EmptyState({
         className
       )}
     >
-      <Icon className="h-7 w-7 text-slate-400" aria-hidden />
+      <Icon className="h-7 w-7 text-slate-600" aria-hidden />
       <p className="text-sm font-medium text-slate-700">{title}</p>
-      {description ? <p className="max-w-sm text-sm text-slate-500">{description}</p> : null}
+      {description ? <p className="max-w-sm text-sm text-slate-600">{description}</p> : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
   );

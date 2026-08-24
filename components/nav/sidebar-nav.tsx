@@ -14,7 +14,7 @@ export function SidebarNav({ role }: { role: string | null }) {
       {groups.map((group) => (
         <div key={group.label || "geral"} className="space-y-0.5">
           {group.label && (
-            <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
               {group.label}
             </p>
           )}

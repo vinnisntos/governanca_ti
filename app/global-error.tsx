@@ -18,7 +18,7 @@ export default function GlobalError({
       <body className="flex min-h-screen items-center justify-center bg-slate-50 font-sans text-slate-900 antialiased">
         <div className="mx-auto w-full max-w-lg space-y-4 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-card">
           <h1 className="text-base font-semibold">Ocorreu um erro inesperado</h1>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-600">
             Não foi possível carregar a aplicação. Tente recarregar a página.
           </p>
 
@@ -29,7 +29,7 @@ export default function GlobalError({
           ) : null}
 
           {error.digest ? (
-            <p className="text-xs text-slate-400">Código de referência: {error.digest}</p>
+            <p className="text-xs text-slate-600">Código de referência: {error.digest}</p>
           ) : null}
 
           <div className="flex justify-center gap-2">

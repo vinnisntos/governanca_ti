@@ -14,7 +14,7 @@ type SearchInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "value
 export function SearchInput({ value, onChange, className, placeholder = "Buscar...", ...props }: SearchInputProps) {
   return (
     <div className={cn("relative", className)}>
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-600" aria-hidden />
       <input
         type="search"
         value={value}

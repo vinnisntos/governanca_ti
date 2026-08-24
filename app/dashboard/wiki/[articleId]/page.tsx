@@ -81,7 +81,7 @@ export default async function WikiArticlePage({
         actions={<Badge tone={article.is_published ? "success" : "neutral"}>{article.is_published ? "Publicado" : "Rascunho"}</Badge>}
       />
 
-      <p className="mb-4 text-xs text-slate-400">
+      <p className="mb-4 text-xs text-slate-600">
         Última atualização em {new Date(article.updated_at).toLocaleDateString("pt-BR")}
         {article.updater ? ` por ${article.updater.full_name}` : article.creator ? ` por ${article.creator.full_name}` : ""}
       </p>

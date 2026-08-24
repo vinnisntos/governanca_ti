@@ -11,6 +11,11 @@ import { Alert } from "@/components/ui/alert";
 
 const initialState: LoginActionState = { error: null };
 
+// Quem não consegue logar não tem como abrir um chamado na Central de Ajuda
+// (ela só existe dentro do dashboard) — este é o único canal para um humano
+// do TI nesse cenário específico.
+const SUPPORT_EMAIL = "vinnicius.gabriel@going2.com.br";
+
 export function LoginForm() {
   const [state, formAction] = useFormState(loginAction, initialState);
   const [showPassword, setShowPassword] = useState(false);
@@ -23,7 +28,7 @@ export function LoginForm() {
             <ShieldCheck className="h-6 w-6" aria-hidden />
           </div>
           <h1 className="mt-3 text-lg font-semibold text-slate-900">Portal de Governança de TI</h1>
-          <p className="mt-1 text-sm text-slate-500">Acesso restrito a colaboradores.</p>
+          <p className="mt-1 text-sm text-slate-600">Acesso restrito a colaboradores.</p>
         </div>
 
         <form
@@ -56,7 +61,7 @@ export function LoginForm() {
                 onClick={() => setShowPassword((value) => !value)}
                 aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                 aria-pressed={showPassword}
-                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-slate-400 transition hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-slate-600 transition hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -69,6 +74,13 @@ export function LoginForm() {
             Entrar
           </SubmitButton>
         </form>
+
+        <p className="mt-4 text-center text-sm text-slate-600">
+          Não consegue acessar?{" "}
+          <a href={`mailto:${SUPPORT_EMAIL}`} className="font-medium text-primary-700 underline-offset-2 hover:underline">
+            Fale com o TI
+          </a>
+        </p>
       </div>
     </main>
   );

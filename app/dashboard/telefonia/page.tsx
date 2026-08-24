@@ -69,7 +69,7 @@ export default async function TelefoniaPage() {
               <Card className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-medium text-slate-900">{line.phone_number}</p>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-600">
                     {line.carrier} — {line.plan_name} ({LINE_TYPE_LABELS[line.line_type]})
                   </p>
                 </div>

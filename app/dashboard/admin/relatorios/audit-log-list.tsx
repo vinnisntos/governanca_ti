@@ -38,23 +38,23 @@ export function AuditLogList({ logs }: { logs: AuditLogRow[] }) {
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-card">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-xs font-medium text-slate-500">
+            <thead className="border-b border-slate-200 text-xs font-medium text-slate-600">
               <tr>
-                <th className="px-3 py-2.5">Quando</th>
-                <th className="px-3 py-2.5">Quem</th>
-                <th className="px-3 py-2.5">Ação</th>
-                <th className="px-3 py-2.5">Tabela</th>
+                <th scope="col" className="px-3 py-2.5">Quando</th>
+                <th scope="col" className="px-3 py-2.5">Quem</th>
+                <th scope="col" className="px-3 py-2.5">Ação</th>
+                <th scope="col" className="px-3 py-2.5">Tabela</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((log) => (
                 <tr key={log.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                  <td className="px-3 py-2.5 text-slate-500">
+                  <td className="px-3 py-2.5 text-slate-600">
                     {new Date(log.created_at).toLocaleString("pt-BR")}
                   </td>
                   <td className="px-3 py-2.5 text-slate-900">{log.profiles?.full_name ?? "—"}</td>
                   <td className="px-3 py-2.5">{ACTION_LABELS[log.action] ?? log.action}</td>
-                  <td className="px-3 py-2.5 text-slate-500">{log.table_name}</td>
+                  <td className="px-3 py-2.5 text-slate-600">{log.table_name}</td>
                 </tr>
               ))}
             </tbody>

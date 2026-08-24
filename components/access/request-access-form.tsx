@@ -16,6 +16,8 @@ export function RequestAccessForm({
   catalog: { id: string; name: string }[];
 }) {
   const [systemId, setSystemId] = React.useState("");
+  const [justification, setJustification] = React.useState("");
+  const JUSTIFICATION_MAX = 2000;
 
   return (
     <form action={action} className="space-y-4">
@@ -61,9 +63,18 @@ export function RequestAccessForm({
         label="Justificativa"
         htmlFor="justification"
         required
-        hint="Explique por que você precisa deste acesso (mínimo 10 caracteres)."
+        hint={`Explique por que você precisa deste acesso (mínimo 10 caracteres). ${justification.length}/${JUSTIFICATION_MAX}`}
       >
-        <Textarea id="justification" name="justification" required minLength={10} rows={3} />
+        <Textarea
+          id="justification"
+          name="justification"
+          required
+          minLength={10}
+          maxLength={JUSTIFICATION_MAX}
+          rows={3}
+          value={justification}
+          onChange={(event) => setJustification(event.target.value)}
+        />
       </Field>
 
       <div className="flex justify-end">

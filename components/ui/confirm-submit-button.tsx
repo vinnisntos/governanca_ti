@@ -60,7 +60,7 @@ export function ConfirmSubmitButton({
             {title}
           </AlertDialog.Title>
           {description ? (
-            <AlertDialog.Description className="mt-1.5 text-sm text-slate-500">
+            <AlertDialog.Description className="mt-1.5 text-sm text-slate-600">
               {description}
             </AlertDialog.Description>
           ) : null}

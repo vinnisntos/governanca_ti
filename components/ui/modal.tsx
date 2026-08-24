@@ -61,14 +61,14 @@ export function Modal({
             <div>
               <Dialog.Title className="text-lg font-semibold text-slate-900">{title}</Dialog.Title>
               {description ? (
-                <Dialog.Description className="mt-1 text-sm text-slate-500">
+                <Dialog.Description className="mt-1 text-sm text-slate-600">
                   {description}
                 </Dialog.Description>
               ) : null}
             </div>
             <Dialog.Close
               aria-label="Fechar"
-              className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+              className="shrink-0 rounded-lg p-1.5 text-slate-600 transition hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             >
               <X className="h-4 w-4" />
             </Dialog.Close>

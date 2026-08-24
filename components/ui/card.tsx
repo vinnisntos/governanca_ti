@@ -29,7 +29,7 @@ export function Section({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             {title ? <h2 className="text-sm font-semibold text-slate-800">{title}</h2> : null}
-            {description ? <p className="mt-0.5 text-xs text-slate-500">{description}</p> : null}
+            {description ? <p className="mt-0.5 text-xs text-slate-600">{description}</p> : null}
           </div>
           {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
         </div>

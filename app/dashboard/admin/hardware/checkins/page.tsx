@@ -88,10 +88,10 @@ export default async function HardwareMaintenanceQueuePage({
                       <p className="font-medium text-slate-900">
                         {checkin.hardware_assets?.asset_tag} — {checkin.hardware_assets?.model}
                       </p>
-                      <p className="text-sm text-slate-500">
+                      <p className="text-sm text-slate-600">
                         {checkin.profiles?.full_name} ({checkin.profiles?.email})
                       </p>
-                      <p className="text-sm text-slate-500">
+                      <p className="text-sm text-slate-600">
                         Estado reportado: {CONDITION_LABELS[checkin.physical_condition]}
                       </p>
                     </div>
@@ -102,7 +102,7 @@ export default async function HardwareMaintenanceQueuePage({
 
                   <p className="mt-2 text-sm text-slate-700">{checkin.maintenance_details}</p>
                   {checkin.condition_notes ? (
-                    <p className="mt-1 text-sm text-slate-500">Obs.: {checkin.condition_notes}</p>
+                    <p className="mt-1 text-sm text-slate-600">Obs.: {checkin.condition_notes}</p>
                   ) : null}
 
                   {photoUrlById.has(checkin.id) ? (

@@ -38,7 +38,7 @@ export function MobileNav({
           <div className="mb-2 flex items-center justify-end">
             <Dialog.Close
               aria-label="Fechar menu"
-              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              className="rounded-lg p-1.5 text-slate-600 transition hover:bg-slate-100 hover:text-slate-600"
             >
               <X className="h-4 w-4" />
             </Dialog.Close>

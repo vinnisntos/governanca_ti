@@ -54,8 +54,8 @@ export function AssetList({ assets, profiles }: { assets: AssetWithContract[]; p
                     <p className="font-medium text-slate-900">
                       {asset.asset_tag} — {CATEGORY_LABELS[asset.category]} {asset.model}
                     </p>
-                    <p className="text-sm text-slate-500">N/S: {asset.serial_number}</p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-600">N/S: {asset.serial_number}</p>
+                    <p className="text-sm text-slate-600">
                       {asset.profiles ? `Com: ${asset.profiles.full_name} (${asset.profiles.email})` : "Sem responsável"}
                     </p>
                   </div>
@@ -112,7 +112,7 @@ export function AssetList({ assets, profiles }: { assets: AssetWithContract[]; p
                       ) : null}
                     </p>
                   ) : (
-                    <p className="text-sm text-slate-500">Nenhum contrato anexado.</p>
+                    <p className="text-sm text-slate-600">Nenhum contrato anexado.</p>
                   )}
 
                   {asset.assigned_to ? (
@@ -125,7 +125,7 @@ export function AssetList({ assets, profiles }: { assets: AssetWithContract[]; p
                       </SubmitButton>
                     </form>
                   ) : (
-                    <p className="mt-2 text-xs text-slate-400">
+                    <p className="mt-2 text-xs text-slate-600">
                       Atribua um responsável para poder anexar o contrato.
                     </p>
                   )}
