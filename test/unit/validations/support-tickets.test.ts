@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   addTicketMessageSchema,
+  cancelOwnTicketSchema,
   closeOwnTicketSchema,
   createSupportTicketSchema,
+  mergeTicketsSchema,
+  reopenTicketSchema,
   updateTicketStatusSchema,
 } from "@/lib/validations/support-tickets";
 
@@ -79,11 +82,88 @@ describe("updateTicketStatusSchema", () => {
     const result = updateTicketStatusSchema.safeParse({ ticket_id: validUuid, status: "resolvido" });
     expect(result.success).toBe(true);
   });
+
+  it("aceita o novo status 'cancelado'", () => {
+    const result = updateTicketStatusSchema.safeParse({ ticket_id: validUuid, status: "cancelado" });
+    expect(result.success).toBe(true);
+  });
+
+  it("aceita nota opcional", () => {
+    const result = updateTicketStatusSchema.safeParse({
+      ticket_id: validUuid,
+      status: "fechado",
+      note: "Resolvido por reinstalação do driver.",
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe("closeOwnTicketSchema", () => {
   it("rejeita ticket_id que não é uuid", () => {
     const result = closeOwnTicketSchema.safeParse({ ticket_id: "1" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("reopenTicketSchema", () => {
+  it("aceita motivo válido", () => {
+    const result = reopenTicketSchema.safeParse({ ticket_id: validUuid, reason: "O problema voltou hoje." });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejeita motivo vazio", () => {
+    const result = reopenTicketSchema.safeParse({ ticket_id: validUuid, reason: "  " });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita motivo abaixo do mínimo de 10 caracteres", () => {
+    const result = reopenTicketSchema.safeParse({ ticket_id: validUuid, reason: "curto" });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita campos extras (.strict())", () => {
+    const result = reopenTicketSchema.safeParse({
+      ticket_id: validUuid,
+      reason: "O problema voltou a acontecer hoje de manhã.",
+      status: "aberto",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("cancelOwnTicketSchema", () => {
+  it("aceita sem motivo (opcional)", () => {
+    const result = cancelOwnTicketSchema.safeParse({ ticket_id: validUuid });
+    expect(result.success).toBe(true);
+  });
+
+  it("aceita com motivo", () => {
+    const result = cancelOwnTicketSchema.safeParse({
+      ticket_id: validUuid,
+      reason: "Resolvi por conta própria.",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("mergeTicketsSchema", () => {
+  it("aceita número de chamado positivo", () => {
+    const result = mergeTicketsSchema.safeParse({ ticket_id: validUuid, target_ticket_number: 42 });
+    expect(result.success).toBe(true);
+  });
+
+  it("coage string numérica de formulário (FormData)", () => {
+    const result = mergeTicketsSchema.safeParse({ ticket_id: validUuid, target_ticket_number: "42" });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejeita número não positivo", () => {
+    const result = mergeTicketsSchema.safeParse({ ticket_id: validUuid, target_ticket_number: 0 });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejeita número não inteiro", () => {
+    const result = mergeTicketsSchema.safeParse({ ticket_id: validUuid, target_ticket_number: 4.5 });
     expect(result.success).toBe(false);
   });
 });

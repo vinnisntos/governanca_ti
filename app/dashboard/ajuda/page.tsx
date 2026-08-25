@@ -26,7 +26,7 @@ export default async function HelpCenterPage({
 
   const { data: tickets } = await supabase
     .from("support_tickets")
-    .select("id, category, subject, status, updated_at")
+    .select("id, category, subject, status, ticket_number, updated_at")
     .eq("requester_id", user.id)
     .order("updated_at", { ascending: false })
     .returns<TicketListRow[]>();

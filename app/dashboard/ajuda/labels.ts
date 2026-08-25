@@ -13,6 +13,7 @@ export const STATUS_LABELS = {
   em_andamento: "Em andamento",
   resolvido: "Resolvido",
   fechado: "Fechado",
+  cancelado: "Cancelado",
 } as const;
 
 export const STATUS_TONE = {
@@ -20,4 +21,5 @@ export const STATUS_TONE = {
   em_andamento: "info",
   resolvido: "success",
   fechado: "neutral",
+  cancelado: "danger",
 } as const satisfies Record<keyof typeof STATUS_LABELS, BadgeTone>;

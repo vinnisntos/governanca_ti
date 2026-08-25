@@ -1,16 +1,25 @@
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { updateTicketStatusAction, closeOwnTicketAction } from "../actions";
+import {
+  updateTicketStatusAction,
+  closeOwnTicketAction,
+  cancelOwnTicketAction,
+  mergeTicketsAction,
+} from "../actions";
 import { CATEGORY_LABELS, STATUS_LABELS, STATUS_TONE } from "../labels";
+import { formatTicketNumber } from "@/lib/utils/format-ticket-number";
 import { ReplyForm } from "./reply-form";
+import { ReopenForm } from "./reopen-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Card, Section } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { Alert } from "@/components/ui/alert";
+import { LinkButton } from "@/components/ui/button";
 
 type TicketRow = {
   id: string;
@@ -18,8 +27,11 @@ type TicketRow = {
   category: keyof typeof CATEGORY_LABELS;
   subject: string;
   status: keyof typeof STATUS_LABELS;
+  ticket_number: number;
+  merged_into_id: string | null;
   created_at: string;
   requester: { full_name: string; email: string } | null;
+  merged_into: { ticket_number: number } | null;
 };
 
 type MessageRow = {
@@ -59,7 +71,7 @@ export default async function TicketDetailPage({
   const { data: ticket } = await supabase
     .from("support_tickets")
     .select(
-      "id, requester_id, category, subject, status, created_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email)"
+      "id, requester_id, category, subject, status, ticket_number, merged_into_id, created_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email), merged_into:support_tickets!support_tickets_merged_into_id_fkey(ticket_number)"
     )
     .eq("id", ticketId)
     .maybeSingle<TicketRow>();
@@ -78,27 +90,55 @@ export default async function TicketDetailPage({
     .returns<MessageRow[]>();
 
   const isOwner = ticket.requester_id === user.id;
-  const canReply = ticket.status !== "fechado" && (isOwner || isAdmin);
+  const isMerged = ticket.merged_into_id !== null;
+  const canReply = !isMerged && ticket.status !== "fechado" && ticket.status !== "cancelado" && (isOwner || isAdmin);
+  const canClose = isOwner && !isMerged && ["aberto", "em_andamento", "resolvido"].includes(ticket.status);
+  const canCancel = isOwner && !isMerged && ticket.status === "aberto";
+  const canReopen = isOwner && !isMerged && (ticket.status === "resolvido" || ticket.status === "fechado");
 
   return (
     <>
       <FlashToast success={successMessage} error={errorMessage} />
 
       <PageHeader
-        title={ticket.subject}
+        title={`Chamado ${formatTicketNumber(ticket.ticket_number)} — ${ticket.subject}`}
         back={{ href: "/dashboard/ajuda", label: "Central de Ajuda" }}
         description={
           isAdmin && ticket.requester
             ? `Aberto por ${ticket.requester.full_name} (${ticket.requester.email})`
             : undefined
         }
-        actions={<Badge tone={STATUS_TONE[ticket.status]}>{STATUS_LABELS[ticket.status]}</Badge>}
+        actions={
+          <>
+            <Badge tone={STATUS_TONE[ticket.status]}>{STATUS_LABELS[ticket.status]}</Badge>
+            <LinkButton
+              href={`/dashboard/ajuda/${ticket.id}/export`}
+              variant="outline"
+              size="sm"
+            >
+              Baixar relatório da conversa
+            </LinkButton>
+          </>
+        }
       />
 
       <p className="mb-4 text-xs text-slate-600">
         {CATEGORY_LABELS[ticket.category]} · aberto em{" "}
         {new Date(ticket.created_at).toLocaleString("pt-BR")}
       </p>
+
+      {isMerged && ticket.merged_into ? (
+        <Alert tone="info" className="mb-4">
+          Este chamado foi mesclado com o chamado{" "}
+          <a
+            href={`/dashboard/ajuda/${ticket.merged_into_id}`}
+            className="font-medium underline underline-offset-2"
+          >
+            {formatTicketNumber(ticket.merged_into.ticket_number)}
+          </a>
+          . O atendimento continua por lá.
+        </Alert>
+      ) : null}
 
       <Section title="Conversa">
         <ul className="space-y-3">
@@ -130,51 +170,126 @@ export default async function TicketDetailPage({
         <div className="mt-4">
           <ReplyForm ticketId={ticket.id} />
         </div>
-      ) : (
+      ) : !isMerged ? (
         <Alert tone="info" className="mt-4">
-          Este chamado está fechado. Abra um novo chamado se precisar de ajuda novamente.
+          {ticket.status === "cancelado"
+            ? "Este chamado foi cancelado. Abra um novo chamado se ainda precisar de ajuda."
+            : "Este chamado está fechado. Abra um novo chamado se precisar de ajuda novamente."}
         </Alert>
-      )}
+      ) : null}
+
+      {isOwner && ticket.status === "resolvido" ? (
+        <Alert tone="info" className="mt-4">
+          O TI marcou este chamado como resolvido. Confirme o encerramento se o problema
+          acabou, ou reabra explicando o que ainda falta.
+        </Alert>
+      ) : null}
+
+      {isOwner && !isMerged && (canClose || canCancel || canReopen) ? (
+        <div className="mt-4 space-y-4">
+          {canClose ? (
+            <form action={closeOwnTicketAction} className="inline-block">
+              <input type="hidden" name="ticket_id" value={ticket.id} />
+              <ConfirmSubmitButton
+                variant="outline"
+                size="sm"
+                title={ticket.status === "resolvido" ? "Confirmar resolução e encerrar?" : "Encerrar este chamado?"}
+                description="Encerre só se o seu problema já foi resolvido. Você pode reabrir depois, se precisar."
+                confirmLabel={ticket.status === "resolvido" ? "Confirmar e encerrar" : "Encerrar chamado"}
+                cancelLabel="Voltar"
+              >
+                {ticket.status === "resolvido" ? "Confirmar resolução e encerrar" : "Encerrar chamado"}
+              </ConfirmSubmitButton>
+            </form>
+          ) : null}
+
+          {canCancel ? (
+            <form action={cancelOwnTicketAction} className="ml-2 inline-block">
+              <input type="hidden" name="ticket_id" value={ticket.id} />
+              <ConfirmSubmitButton
+                variant="destructive"
+                size="sm"
+                title="Cancelar este chamado?"
+                description="Cancele se abriu por engano ou não precisa mais de ajuda. Essa ação não pode ser desfeita."
+                confirmLabel="Cancelar chamado"
+                cancelLabel="Voltar"
+              >
+                Cancelar chamado
+              </ConfirmSubmitButton>
+            </form>
+          ) : null}
+
+          {canReopen ? (
+            <div className="max-w-md">
+              <p className="mb-1.5 text-sm font-medium text-slate-700">Problema não resolvido?</p>
+              <ReopenForm ticketId={ticket.id} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {isAdmin ? (
         <Section title="Gerenciar chamado" className="mt-8">
           <Card>
-            <form action={updateTicketStatusAction} className="flex flex-wrap items-end gap-3">
-              <input type="hidden" name="ticket_id" value={ticket.id} />
-              <div className="min-w-[180px]">
-                <label htmlFor="status" className="mb-1.5 block text-sm font-medium text-slate-700">
-                  Status
-                </label>
-                <Select id="status" name="status" defaultValue={ticket.status}>
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <SubmitButton variant="outline" pendingLabel="Atualizando...">
-                Atualizar status
-              </SubmitButton>
-            </form>
+            {isMerged ? (
+              <p className="text-sm text-slate-600">
+                Este chamado foi mesclado e está congelado — o atendimento continua no chamado de
+                destino linkado acima.
+              </p>
+            ) : (
+              <>
+                <form action={updateTicketStatusAction} className="flex flex-wrap items-end gap-3">
+                  <input type="hidden" name="ticket_id" value={ticket.id} />
+                  <div className="min-w-[180px]">
+                    <label htmlFor="status" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Status
+                    </label>
+                    <Select id="status" name="status" defaultValue={ticket.status}>
+                      {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="min-w-[220px] flex-1">
+                    <label htmlFor="note" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Nota (opcional)
+                    </label>
+                    <Input id="note" name="note" maxLength={2000} placeholder="Registra como mensagem no chamado" />
+                  </div>
+                  <SubmitButton variant="outline" pendingLabel="Atualizando...">
+                    Atualizar status
+                  </SubmitButton>
+                </form>
+
+                <form action={mergeTicketsAction} className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-200 pt-4">
+                  <input type="hidden" name="ticket_id" value={ticket.id} />
+                  <div className="min-w-[180px]">
+                    <label htmlFor="target_ticket_number" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Mesclar com o chamado nº
+                    </label>
+                    <Input
+                      id="target_ticket_number"
+                      name="target_ticket_number"
+                      type="number"
+                      min={1}
+                      placeholder="Ex.: 42"
+                      required
+                    />
+                  </div>
+                  <SubmitButton variant="outline" pendingLabel="Mesclando...">
+                    Mesclar chamados
+                  </SubmitButton>
+                  <p className="w-full text-xs text-slate-600">
+                    Só é possível mesclar chamados do mesmo solicitante. Este chamado será fechado e
+                    passará a apontar para o chamado de destino.
+                  </p>
+                </form>
+              </>
+            )}
           </Card>
         </Section>
-      ) : isOwner && ticket.status !== "fechado" ? (
-        <div className="mt-4">
-          <form action={closeOwnTicketAction}>
-            <input type="hidden" name="ticket_id" value={ticket.id} />
-            <ConfirmSubmitButton
-              variant="outline"
-              size="sm"
-              title="Encerrar este chamado?"
-              description="Encerre só se o seu problema já foi resolvido. Você pode abrir um novo chamado depois, se precisar."
-              confirmLabel="Encerrar chamado"
-              cancelLabel="Voltar"
-            >
-              Encerrar chamado
-            </ConfirmSubmitButton>
-          </form>
-        </div>
       ) : null}
     </>
   );

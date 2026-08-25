@@ -20,7 +20,7 @@ export default async function AdminTicketQueuePage() {
   const { data: tickets } = await supabase
     .from("support_tickets")
     .select(
-      "id, category, subject, status, updated_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email)"
+      "id, category, subject, status, ticket_number, updated_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email)"
     )
     .order("updated_at", { ascending: false })
     .returns<TicketListRow[]>();

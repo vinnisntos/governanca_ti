@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { LifeBuoy } from "lucide-react";
 import { CATEGORY_LABELS, STATUS_LABELS, STATUS_TONE } from "./labels";
+import { formatTicketNumber } from "@/lib/utils/format-ticket-number";
 import { matchesSearch } from "@/lib/utils/normalize-text";
 import { SearchInput } from "@/components/ui/search-input";
 import { Card } from "@/components/ui/card";
@@ -15,6 +16,7 @@ export type TicketListRow = {
   category: keyof typeof CATEGORY_LABELS;
   subject: string;
   status: keyof typeof STATUS_LABELS;
+  ticket_number: number;
   updated_at: string;
   requester?: { full_name: string; email: string } | null;
 };
@@ -38,6 +40,7 @@ export function TicketList({
         matchesSearch(
           query,
           ticket.subject,
+          formatTicketNumber(ticket.ticket_number),
           CATEGORY_LABELS[ticket.category],
           ticket.requester?.full_name,
           ticket.requester?.email
@@ -69,7 +72,10 @@ export function TicketList({
               <Link href={`/dashboard/ajuda/${ticket.id}`}>
                 <Card className="flex items-start justify-between gap-3 transition hover:border-primary-300 hover:shadow-popover">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">{ticket.subject}</p>
+                    <p className="truncate font-medium text-slate-900">
+                      <span className="text-slate-600">{formatTicketNumber(ticket.ticket_number)}</span>{" "}
+                      {ticket.subject}
+                    </p>
                     <p className="text-sm text-slate-600">
                       {CATEGORY_LABELS[ticket.category]}
                       {showRequester && ticket.requester
