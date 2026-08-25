@@ -67,6 +67,7 @@ export default async function TelefoniaAdminPage({
 
       <PageHeader
         title="Telefonia e Linhas Móveis"
+        description="Linhas corporativas cadastradas, seus responsáveis e status."
         actions={
           <Modal
             title="Nova linha"

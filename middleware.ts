@@ -43,10 +43,12 @@ function redirectWithSession(
   request: NextRequest,
   supabaseResponse: NextResponse,
   csp: string,
-  pathname: string
+  pathAndQuery: string
 ) {
+  const [pathname, search] = pathAndQuery.split("?");
   const url = request.nextUrl.clone();
-  url.pathname = pathname;
+  url.pathname = pathname ?? pathAndQuery;
+  url.search = search ? `?${search}` : "";
   const response = NextResponse.redirect(url);
   supabaseResponse.cookies.getAll().forEach((cookie) => response.cookies.set(cookie));
   response.headers.set("Content-Security-Policy", csp);
@@ -65,7 +67,12 @@ export async function middleware(request: NextRequest) {
   const isPublicPath = PUBLIC_PATHS.some((p) => matchesPath(path, p));
 
   if (!user && !isPublicPath) {
-    return redirectWithSession(request, supabaseResponse, csp, "/login");
+    return redirectWithSession(
+      request,
+      supabaseResponse,
+      csp,
+      `/login?next=${encodeURIComponent(path)}`
+    );
   }
 
   if (user && isPublicPath) {
@@ -79,6 +86,15 @@ export async function middleware(request: NextRequest) {
       .eq("id", user.id)
       .single();
 
+    // Conta desativada: encerra a sessão e manda de volta pro login com um
+    // motivo visível, em vez de deixar o usuário navegar por um dashboard
+    // que o RLS (fn_current_role, ver 0001_init.sql) vai render vazio/quebrado
+    // por baixo dos panos sem nenhuma explicação.
+    if (profile && !profile.is_active) {
+      await supabase.auth.signOut();
+      return redirectWithSession(request, supabaseResponse, csp, "/login?reason=inactive");
+    }
+
     // Senha descartável (criada pelo admin_ti ou redefinida por ele): força
     // a troca antes de liberar qualquer outra rota do portal. Checado antes
     // do gate de admin de propósito — um admin_ti recém-criado por outro
@@ -91,9 +107,11 @@ export async function middleware(request: NextRequest) {
       return redirectWithSession(request, supabaseResponse, csp, "/dashboard");
     }
 
+    // is_active já foi checado acima (com signOut) para qualquer rota
+    // autenticada — aqui só falta o gate de papel.
     if (ADMIN_PATHS.some((p) => matchesPath(path, p))) {
-      if (profile?.role !== "admin_ti" || !profile.is_active) {
-        return redirectWithSession(request, supabaseResponse, csp, "/dashboard");
+      if (profile?.role !== "admin_ti") {
+        return redirectWithSession(request, supabaseResponse, csp, "/dashboard?denied=admin");
       }
     }
   }

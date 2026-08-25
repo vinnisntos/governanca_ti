@@ -5,8 +5,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getNavItems } from "@/components/nav/nav-items";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { ROLE_LABELS } from "@/lib/constants/role-labels";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}) {
+  const { denied } = await searchParams;
   const supabase = await createSupabaseServerClient();
 
   const {
@@ -27,12 +34,21 @@ export default async function DashboardPage() {
     .single();
 
   const shortcuts = getNavItems(profile?.role ?? null).filter((item) => item.href !== "/dashboard");
+  const roleLabel = profile?.role
+    ? ROLE_LABELS[profile.role as keyof typeof ROLE_LABELS] ?? "Desconhecido"
+    : "Desconhecido";
 
   return (
     <>
+      {denied === "admin" ? (
+        <Alert tone="warning" className="mb-4">
+          Você não tem permissão para acessar essa área.
+        </Alert>
+      ) : null}
+
       <PageHeader
         title={`Olá, ${profile?.full_name ?? user.email}`}
-        description={`Papel: ${profile?.role ?? "desconhecido"}`}
+        description={`Papel: ${roleLabel}`}
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

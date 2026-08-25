@@ -3,18 +3,26 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createAccessRequestAction } from "../access-requests/actions";
 import { PageHeader } from "@/components/ui/page-header";
+import { FlashToast } from "@/components/ui/flash-toast";
 import { Section, Card } from "@/components/ui/card";
 import { Button, LinkButton } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RequestAccessForm } from "@/components/access/request-access-form";
 
+const PATH = "/dashboard/meus-acessos";
+
 type ApprovedAccessRow = {
   access_catalog: { name: string } | null;
   requested_system_name: string | null;
 };
 
-export default async function MyAccessPage() {
+export default async function MyAccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; success?: string }>;
+}) {
+  const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
 
   const {
@@ -52,6 +60,8 @@ export default async function MyAccessPage() {
 
   return (
     <>
+      <FlashToast success={successMessage} error={errorMessage} />
+
       <PageHeader
         title="Meus acessos"
         description="Ferramentas e sistemas que você tem acesso hoje."
@@ -69,7 +79,7 @@ export default async function MyAccessPage() {
                 </Button>
               }
             >
-              <RequestAccessForm action={createAccessRequestAction} catalog={catalog ?? []} />
+              <RequestAccessForm action={createAccessRequestAction.bind(null, PATH)} catalog={catalog ?? []} />
             </Modal>
           </>
         }

@@ -1,11 +1,17 @@
 import Link from "next/link";
-import { BookOpen, FolderPlus, Plus } from "lucide-react";
+import { BookOpen, FolderPlus, Pencil, Plus, Trash2 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createCategoryAction, createArticleAction, togglePublishArticleAction } from "./actions";
+import {
+  createCategoryAction,
+  createArticleAction,
+  togglePublishArticleAction,
+  updateCategoryAction,
+  deleteCategoryAction,
+} from "./actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
-import { Card } from "@/components/ui/card";
+import { Card, Section } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -16,6 +22,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
 import { StatusToggleButton } from "@/components/ui/status-toggle";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 
 type CategoryRow = {
   id: string;
@@ -139,6 +146,74 @@ export default async function WikiPage({
           ) : undefined
         }
       />
+
+      {canManage && categories && categories.length > 0 ? (
+        <Section title="Categorias" className="mb-6">
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {categories.map((category) => (
+              <li key={category.id}>
+                <Card className="flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-900">{category.name}</p>
+                    {category.description ? (
+                      <p className="truncate text-xs text-slate-600">{category.description}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Modal
+                      title="Editar categoria"
+                      trigger={
+                        <Button variant="ghost" size="icon" aria-label={`Editar ${category.name}`}>
+                          <Pencil className="h-4 w-4" aria-hidden />
+                        </Button>
+                      }
+                    >
+                      <form action={updateCategoryAction} className="space-y-4">
+                        <input type="hidden" name="id" value={category.id} />
+                        <Field label="Nome" htmlFor={`cat-name-${category.id}`} required>
+                          <Input
+                            id={`cat-name-${category.id}`}
+                            name="name"
+                            required
+                            minLength={2}
+                            defaultValue={category.name}
+                          />
+                        </Field>
+                        <Field label="Descrição" htmlFor={`cat-description-${category.id}`} hint="Opcional">
+                          <Input
+                            id={`cat-description-${category.id}`}
+                            name="description"
+                            defaultValue={category.description ?? ""}
+                          />
+                        </Field>
+                        <div className="flex justify-end">
+                          <SubmitButton variant="primary" pendingLabel="Salvando...">
+                            Salvar alterações
+                          </SubmitButton>
+                        </div>
+                      </form>
+                    </Modal>
+
+                    <form action={deleteCategoryAction}>
+                      <input type="hidden" name="id" value={category.id} />
+                      <ConfirmSubmitButton
+                        size="icon"
+                        aria-label={`Excluir ${category.name}`}
+                        title={`Excluir "${category.name}"?`}
+                        description="Essa ação não pode ser desfeita. Se houver artigos usando esta categoria, a exclusão será bloqueada."
+                        confirmLabel="Excluir"
+                        cancelLabel="Cancelar"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                      </ConfirmSubmitButton>
+                    </form>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
 
       {!articles || articles.length === 0 ? (
         <EmptyState

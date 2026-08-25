@@ -4,7 +4,12 @@ import { cn } from "@/lib/utils/cn";
 
 export type AlertTone = "info" | "success" | "warning" | "danger";
 
-const toneConfig: Record<AlertTone, { icon: typeof Info; classes: string; role: "status" | "alert" }> = {
+// Exportado para telas fora do Alert (ex.: FlashToast) reaproveitarem a
+// mesma paleta por tom, em vez de duplicar as cores localmente.
+export const toneConfig: Record<
+  AlertTone,
+  { icon: typeof Info; classes: string; role: "status" | "alert" }
+> = {
   info: { icon: Info, classes: "border-blue-200 bg-blue-50 text-blue-800", role: "status" },
   success: { icon: CheckCircle2, classes: "border-green-200 bg-green-50 text-green-800", role: "status" },
   warning: { icon: AlertTriangle, classes: "border-amber-200 bg-amber-50 text-amber-800", role: "alert" },

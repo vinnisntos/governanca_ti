@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useFormState } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { loginAction, type LoginActionState } from "./actions";
 import { Field } from "@/components/ui/field";
@@ -19,6 +20,9 @@ const SUPPORT_EMAIL = "vinnicius.gabriel@going2.com.br";
 export function LoginForm() {
   const [state, formAction] = useFormState(loginAction, initialState);
   const [showPassword, setShowPassword] = useState(false);
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next");
+  const reason = searchParams.get("reason");
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
@@ -35,6 +39,14 @@ export function LoginForm() {
           action={formAction}
           className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-card"
         >
+          <input type="hidden" name="next" value={next ?? ""} />
+
+          {reason === "inactive" ? (
+            <Alert tone="danger">Sua conta foi desativada. Fale com o TI.</Alert>
+          ) : reason === "denied" ? (
+            <Alert tone="warning">Você não tem permissão para acessar essa área.</Alert>
+          ) : null}
+
           <Field label="E-mail corporativo" htmlFor="email" required>
             <Input
               id="email"

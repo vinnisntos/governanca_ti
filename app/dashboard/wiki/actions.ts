@@ -49,6 +49,82 @@ export async function createCategoryAction(formData: FormData) {
   redirectWithSuccess(LIST_PATH, "Categoria criada.");
 }
 
+export async function updateCategoryAction(formData: FormData) {
+  await assertTrustedOrigin();
+
+  const id = formData.get("id");
+  if (!z.string().uuid().safeParse(id).success) {
+    redirectWithError(LIST_PATH, "Categoria inválida.");
+  }
+
+  const { authorized, supabase } = await requireRole([...WRITE_ROLES]);
+  if (!authorized) {
+    redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
+  }
+
+  const parsed = upsertKnowledgeBaseCategorySchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") || undefined,
+  });
+
+  if (!parsed.success) {
+    redirectWithError(LIST_PATH, "Informe o nome da categoria (mín. 2 caracteres).");
+  }
+
+  const { data: updated, error } = await supabase
+    .from("knowledge_base_categories")
+    .update(parsed.data)
+    .eq("id", id as string)
+    .select("id");
+
+  if (error) {
+    console.error("[wiki] update category failed", { message: error.message });
+    redirectWithError(LIST_PATH, "Não foi possível salvar as alterações (nome já existe?).");
+  }
+
+  if (!updated || updated.length === 0) {
+    redirectWithError(LIST_PATH, "Categoria não encontrada ou você não tem permissão para alterá-la.");
+  }
+
+  redirectWithSuccess(LIST_PATH, "Categoria atualizada.");
+}
+
+export async function deleteCategoryAction(formData: FormData) {
+  await assertTrustedOrigin();
+
+  const id = formData.get("id");
+  if (!z.string().uuid().safeParse(id).success) {
+    redirectWithError(LIST_PATH, "Categoria inválida.");
+  }
+
+  const { authorized, supabase } = await requireRole([...WRITE_ROLES]);
+  if (!authorized) {
+    redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
+  }
+
+  const { data: deleted, error } = await supabase
+    .from("knowledge_base_categories")
+    .delete()
+    .eq("id", id as string)
+    .select("id");
+
+  if (error) {
+    // 23503 = violação de FK: existem artigos apontando para esta categoria.
+    const message =
+      error.code === "23503"
+        ? "Esta categoria tem artigos vinculados e não pode ser excluída."
+        : "Não foi possível excluir a categoria.";
+    console.error("[wiki] delete category failed", { message: error.message, code: error.code });
+    redirectWithError(LIST_PATH, message);
+  }
+
+  if (!deleted || deleted.length === 0) {
+    redirectWithError(LIST_PATH, "Categoria não encontrada ou você não tem permissão para excluí-la.");
+  }
+
+  redirectWithSuccess(LIST_PATH, "Categoria excluída.");
+}
+
 export async function createArticleAction(formData: FormData) {
   await assertTrustedOrigin();
 

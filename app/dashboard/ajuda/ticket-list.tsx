@@ -26,11 +26,13 @@ export function TicketList({
   showRequester = false,
   emptyTitle,
   emptyDescription,
+  emptyAction,
 }: {
   tickets: TicketListRow[];
   showRequester?: boolean;
   emptyTitle: string;
   emptyDescription?: string;
+  emptyAction?: React.ReactNode;
 }) {
   const [query, setQuery] = React.useState("");
 
@@ -50,7 +52,9 @@ export function TicketList({
   );
 
   if (tickets.length === 0) {
-    return <EmptyState icon={LifeBuoy} title={emptyTitle} description={emptyDescription} />;
+    return (
+      <EmptyState icon={LifeBuoy} title={emptyTitle} description={emptyDescription} action={emptyAction} />
+    );
   }
 
   return (

@@ -32,7 +32,7 @@ export function StatusToggleButton({
       title={actionLabel}
       className={cn(
         badgeClassName(active ? activeTone : inactiveTone),
-        "gap-1 border border-black/5 shadow-sm transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-1",
+        "gap-1 border border-black/5 shadow-sm transition hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1",
         className
       )}
     >

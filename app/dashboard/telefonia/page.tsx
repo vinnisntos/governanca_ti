@@ -54,7 +54,10 @@ export default async function TelefoniaPage() {
 
   return (
     <>
-      <PageHeader title="Minhas linhas telefônicas" />
+      <PageHeader
+        title="Minhas linhas telefônicas"
+        description="Linhas telefônicas corporativas vinculadas ao seu usuário."
+      />
 
       {!lines || lines.length === 0 ? (
         <EmptyState
@@ -70,7 +73,7 @@ export default async function TelefoniaPage() {
                 <div>
                   <p className="font-medium text-slate-900">{line.phone_number}</p>
                   <p className="text-sm text-slate-600">
-                    {line.carrier} — {line.plan_name} ({LINE_TYPE_LABELS[line.line_type]})
+                    {line.carrier} — {line.plan_name} ({LINE_TYPE_LABELS[line.line_type] ?? line.line_type})
                   </p>
                 </div>
                 <Badge tone={STATUS_TONE[line.status]}>{STATUS_LABELS[line.status]}</Badge>

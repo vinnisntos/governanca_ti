@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, LinkButton } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 export default function ErrorBoundary({
@@ -38,7 +38,10 @@ export default function ErrorBoundary({
           <p className="text-xs text-slate-600">Código de referência: {error.digest}</p>
         ) : null}
 
-        <div className="flex justify-center gap-2">
+        <div className="flex flex-wrap justify-center gap-2">
+          <LinkButton href="/dashboard" variant="ghost">
+            Ir para o início
+          </LinkButton>
           <Button variant="outline" onClick={() => window.location.reload()}>
             Recarregar página
           </Button>

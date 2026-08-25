@@ -52,7 +52,7 @@ export function AssetList({ assets, profiles }: { assets: AssetWithContract[]; p
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-slate-900">
-                      {asset.asset_tag} — {CATEGORY_LABELS[asset.category]} {asset.model}
+                      {asset.asset_tag} — {CATEGORY_LABELS[asset.category] ?? asset.category} {asset.model}
                     </p>
                     <p className="text-sm text-slate-600">N/S: {asset.serial_number}</p>
                     <p className="text-sm text-slate-600">

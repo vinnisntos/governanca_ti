@@ -31,6 +31,20 @@ export default async function HelpCenterPage({
     .order("updated_at", { ascending: false })
     .returns<TicketListRow[]>();
 
+  const openTicketModal = (
+    <Modal
+      title="Abrir chamado"
+      trigger={
+        <Button variant="primary">
+          <Plus className="h-4 w-4" aria-hidden />
+          Abrir chamado
+        </Button>
+      }
+    >
+      <NewTicketForm />
+    </Modal>
+  );
+
   return (
     <>
       <FlashToast success={successMessage} error={errorMessage} />
@@ -38,25 +52,14 @@ export default async function HelpCenterPage({
       <PageHeader
         title="Central de Ajuda"
         description="Abra um chamado para o TI e acompanhe a conversa por aqui."
-        actions={
-          <Modal
-            title="Abrir chamado"
-            trigger={
-              <Button variant="primary">
-                <Plus className="h-4 w-4" aria-hidden />
-                Abrir chamado
-              </Button>
-            }
-          >
-            <NewTicketForm />
-          </Modal>
-        }
+        actions={openTicketModal}
       />
 
       <TicketList
         tickets={tickets ?? []}
-        emptyTitle="Nenhum chamado aberto"
+        emptyTitle="Você ainda não abriu nenhum chamado"
         emptyDescription="Precisa de ajuda com acessos, hardware, telefonia ou login? Abra um chamado e o TI responde por aqui."
+        emptyAction={openTicketModal}
       />
     </>
   );

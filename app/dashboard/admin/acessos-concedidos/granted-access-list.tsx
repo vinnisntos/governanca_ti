@@ -10,9 +10,9 @@ import { Card, Section } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 
 function systemName(row: GrantedAccessRow) {
   return row.access_catalog?.name ?? row.requested_system_name ?? "Sistema removido";
@@ -94,9 +94,15 @@ export function GrantedAccessList({ grants }: { grants: GrantedAccessRow[] }) {
                             <Textarea id={`reason-${row.id}`} name="revoke_reason" rows={2} />
                           </Field>
                           <div className="flex justify-end">
-                            <SubmitButton variant="destructive" pendingLabel="Revogando...">
+                            <ConfirmSubmitButton
+                              variant="destructive"
+                              title={`Revogar acesso de ${row.requester?.full_name ?? "este usuário"}?`}
+                              description="A ação é imediata e não pode ser desfeita."
+                              confirmLabel="Revogar acesso"
+                              cancelLabel="Voltar"
+                            >
                               Revogar acesso
-                            </SubmitButton>
+                            </ConfirmSubmitButton>
                           </div>
                         </form>
                       </Modal>

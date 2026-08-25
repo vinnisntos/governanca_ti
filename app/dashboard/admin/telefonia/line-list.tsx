@@ -68,7 +68,7 @@ export function LineList({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium text-slate-900">
-                      {line.phone_number} — {LINE_TYPE_LABELS[line.line_type]}
+                      {line.phone_number} — {LINE_TYPE_LABELS[line.line_type] ?? line.line_type}
                     </p>
                     <p className="text-sm text-slate-600">
                       {line.profiles

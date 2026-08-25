@@ -54,9 +54,25 @@ export async function loginAction(
   // só para o primeiro redirect pós-login já sair certo.
   const { data: profile } = await supabase
     .from("profiles")
-    .select("must_change_password")
+    .select("is_active, must_change_password")
     .eq("id", signInData.user.id)
     .single();
 
-  redirect(profile?.must_change_password ? "/primeiro-acesso" : "/dashboard");
+  // A credencial é válida, mas a conta foi desativada — o middleware também
+  // bloquearia isso na navegação seguinte, mas checar aqui evita mandar o
+  // usuário pro /dashboard e só descobrir a desativação num segundo passo.
+  if (profile && !profile.is_active) {
+    await supabase.auth.signOut();
+    return { error: "Sua conta foi desativada. Fale com o TI." };
+  }
+
+  if (profile?.must_change_password) {
+    redirect("/primeiro-acesso");
+  }
+
+  // "next" só é aceito se apontar para dentro do dashboard — evita redirect
+  // aberto caso alguém manipule o campo escondido do formulário.
+  const next = formData.get("next");
+  const safeNext = typeof next === "string" && /^\/dashboard(\/|$)/.test(next) ? next : "/dashboard";
+  redirect(safeNext);
 }

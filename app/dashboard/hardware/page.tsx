@@ -151,7 +151,7 @@ export default async function HardwarePage({
                         <Laptop2 className="h-4 w-4" aria-hidden />
                       </div>
                       <p className="font-medium text-slate-900">
-                        {asset.asset_tag} — {CATEGORY_LABELS[asset.category]} {asset.model}
+                        {asset.asset_tag} — {CATEGORY_LABELS[asset.category] ?? asset.category} {asset.model}
                       </p>
                     </div>
 
@@ -163,7 +163,7 @@ export default async function HardwarePage({
                     ) : (
                       <Modal
                         title="Check-in mensal"
-                        description={`${asset.asset_tag} — ${CATEGORY_LABELS[asset.category]} ${asset.model}`}
+                        description={`${asset.asset_tag} — ${CATEGORY_LABELS[asset.category] ?? asset.category} ${asset.model}`}
                         trigger={
                           <Button variant="primary" size="sm">
                             <ClipboardEdit className="h-4 w-4" aria-hidden />
@@ -237,7 +237,7 @@ export default async function HardwarePage({
                       <ul className="mt-2 space-y-1 border-l border-slate-200 pl-3">
                         {history.map((c) => (
                           <li key={c.id}>
-                            {new Date(c.created_at).toLocaleDateString("pt-BR")} — {CONDITION_LABELS[c.physical_condition]}
+                            {new Date(c.created_at).toLocaleDateString("pt-BR")} — {CONDITION_LABELS[c.physical_condition] ?? c.physical_condition}
                             {c.maintenance_requested
                               ? c.maintenance_resolved
                                 ? " — manutenção resolvida"

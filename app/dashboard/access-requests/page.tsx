@@ -96,7 +96,10 @@ export default async function AccessRequestsPage({
                 </Button>
               }
             >
-              <RequestAccessForm action={createAccessRequestAction} catalog={catalog ?? []} />
+              <RequestAccessForm
+                action={createAccessRequestAction.bind(null, "/dashboard/access-requests")}
+                catalog={catalog ?? []}
+              />
             </Modal>
           </>
         }

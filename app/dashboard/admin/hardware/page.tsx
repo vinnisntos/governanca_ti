@@ -72,6 +72,7 @@ export default async function HardwareAdminPage({
 
       <PageHeader
         title="Inventário de Hardware"
+        description="Ativos cadastrados, seus responsáveis e status de uso."
         actions={
           <>
             <LinkButton href="/dashboard/admin/hardware/checkins" variant="outline">

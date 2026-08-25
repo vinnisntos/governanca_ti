@@ -33,7 +33,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 export function buttonClassName(
-  variant: ButtonVariant = "secondary",
+  variant: ButtonVariant = "primary",
   size: ButtonSize = "md",
   className?: string
 ) {
@@ -46,7 +46,7 @@ export function buttonClassName(
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "secondary", size = "md", type = "button", ...props }, ref) => {
+  ({ className, variant = "primary", size = "md", type = "button", ...props }, ref) => {
     return (
       <button
         ref={ref}
@@ -62,7 +62,7 @@ Button.displayName = "Button";
 /** Anchor styled like a Button — use for links that should look like buttons (e.g. "open in new tab"). */
 export function LinkButton({
   className,
-  variant = "secondary",
+  variant = "primary",
   size = "md",
   ...props
 }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { variant?: ButtonVariant; size?: ButtonSize }) {

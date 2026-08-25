@@ -21,5 +21,5 @@ export const STATUS_TONE = {
   em_andamento: "info",
   resolvido: "success",
   fechado: "neutral",
-  cancelado: "danger",
+  cancelado: "neutral",
 } as const satisfies Record<keyof typeof STATUS_LABELS, BadgeTone>;

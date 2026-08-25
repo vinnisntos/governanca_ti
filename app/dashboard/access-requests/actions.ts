@@ -19,7 +19,10 @@ import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redir
 
 const PATH = "/dashboard/access-requests";
 
-export async function createAccessRequestAction(formData: FormData) {
+// redirectPath vem vinculado via .bind() em cada tela que usa este form
+// (access-requests e meus-acessos), pra sempre voltar pra quem o abriu em
+// vez de mandar todo mundo de volta pra /dashboard/access-requests.
+export async function createAccessRequestAction(redirectPath: string, formData: FormData) {
   await assertTrustedOrigin();
 
   const parsed = createAccessRequestSchema.safeParse({
@@ -29,7 +32,10 @@ export async function createAccessRequestAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirectWithError(PATH, parsed.error.issues[0]?.message ?? "Dados inválidos para a solicitação.");
+    redirectWithError(
+      redirectPath,
+      parsed.error.issues[0]?.message ?? "Dados inválidos para a solicitação."
+    );
   }
 
   const supabase = await createSupabaseServerClient();
@@ -52,10 +58,10 @@ export async function createAccessRequestAction(formData: FormData) {
 
   if (error) {
     console.error("[access-requests] create failed", { message: error.message });
-    redirectWithError(PATH, "Não foi possível registrar a solicitação.");
+    redirectWithError(redirectPath, "Não foi possível registrar a solicitação.");
   }
 
-  redirectWithSuccess(PATH, "Solicitação enviada.");
+  redirectWithSuccess(redirectPath, "Solicitação enviada.");
 }
 
 export async function cancelAccessRequestAction(formData: FormData) {

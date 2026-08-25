@@ -172,9 +172,14 @@ export default async function TicketDetailPage({
         </div>
       ) : !isMerged ? (
         <Alert tone="info" className="mt-4">
-          {ticket.status === "cancelado"
-            ? "Este chamado foi cancelado. Abra um novo chamado se ainda precisar de ajuda."
-            : "Este chamado está fechado. Abra um novo chamado se precisar de ajuda novamente."}
+          <p>
+            {ticket.status === "cancelado"
+              ? "Este chamado foi cancelado. Abra um novo chamado se ainda precisar de ajuda."
+              : "Este chamado está fechado. Abra um novo chamado se precisar de ajuda novamente."}
+          </p>
+          <LinkButton href="/dashboard/ajuda" variant="outline" size="sm" className="mt-2">
+            Abrir novo chamado
+          </LinkButton>
         </Alert>
       ) : null}
 

@@ -15,16 +15,11 @@ import { Modal } from "@/components/ui/modal";
 import { badgeClassName } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
+import { Alert } from "@/components/ui/alert";
+import { ROLE_LABELS } from "@/lib/constants/role-labels";
 
 type Department = { id: string; name: string };
 type ManagerOption = { id: string; full_name: string; role: UserRole };
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  colaborador: "Colaborador",
-  gestor: "Gestor",
-  rh: "RH",
-  admin_ti: "Admin TI",
-};
 
 export function UserList({
   users,
@@ -113,67 +108,7 @@ export function UserList({
                           </Button>
                         }
                       >
-                      <form action={updateUserAction} className="space-y-4">
-                        <input type="hidden" name="id" value={item.id} />
-
-                        <Field label="Papel" htmlFor={`role-${item.id}`} required>
-                          <Select id={`role-${item.id}`} name="role" defaultValue={item.role}>
-                            <option value="colaborador">Colaborador</option>
-                            <option value="gestor">Gestor</option>
-                            <option value="rh">RH</option>
-                            <option value="admin_ti">Admin TI</option>
-                          </Select>
-                        </Field>
-
-                        <Field label="Departamento" htmlFor={`department_id-${item.id}`} hint="Opcional">
-                          <Select
-                            id={`department_id-${item.id}`}
-                            name="department_id"
-                            defaultValue={item.department_id ?? ""}
-                          >
-                            <option value="">Nenhum</option>
-                            {departments.map((department) => (
-                              <option key={department.id} value={department.id}>
-                                {department.name}
-                              </option>
-                            ))}
-                          </Select>
-                        </Field>
-
-                        <Field
-                          label="Gestor responsável"
-                          htmlFor={`manager_id-${item.id}`}
-                          hint="Quem decide as solicitações de acesso deste usuário em 'Aprovações pendentes'"
-                        >
-                          <Select id={`manager_id-${item.id}`} name="manager_id" defaultValue={item.manager_id ?? ""}>
-                            <option value="">Sem gestor</option>
-                            {managers
-                              .filter((manager) => manager.id !== item.id)
-                              .map((manager) => (
-                                <option key={manager.id} value={manager.id}>
-                                  {manager.full_name} ({ROLE_LABELS[manager.role]})
-                                </option>
-                              ))}
-                          </Select>
-                        </Field>
-
-                        <Field label="Situação" htmlFor={`is_active-${item.id}`}>
-                          <Select
-                            id={`is_active-${item.id}`}
-                            name="is_active"
-                            defaultValue={item.is_active ? "true" : "false"}
-                          >
-                            <option value="true">Ativo</option>
-                            <option value="false">Inativo</option>
-                          </Select>
-                        </Field>
-
-                        <div className="flex justify-end">
-                          <SubmitButton variant="primary" pendingLabel="Salvando...">
-                            Salvar alterações
-                          </SubmitButton>
-                        </div>
-                      </form>
+                        <EditUserForm item={item} departments={departments} managers={managers} />
                       </Modal>
                     </div>
                   )}
@@ -184,5 +119,87 @@ export function UserList({
         </ul>
       )}
     </div>
+  );
+}
+
+function EditUserForm({
+  item,
+  departments,
+  managers,
+}: {
+  item: UserRow;
+  departments: Department[];
+  managers: ManagerOption[];
+}) {
+  const [isActive, setIsActive] = React.useState(item.is_active ? "true" : "false");
+  const willDeactivate = item.is_active && isActive === "false";
+
+  return (
+    <form action={updateUserAction} className="space-y-4">
+      <input type="hidden" name="id" value={item.id} />
+
+      <Field label="Papel" htmlFor={`role-${item.id}`} required>
+        <Select id={`role-${item.id}`} name="role" defaultValue={item.role}>
+          <option value="colaborador">Colaborador</option>
+          <option value="gestor">Gestor</option>
+          <option value="rh">RH</option>
+          <option value="admin_ti">Admin TI</option>
+        </Select>
+      </Field>
+
+      <Field label="Departamento" htmlFor={`department_id-${item.id}`} hint="Opcional">
+        <Select
+          id={`department_id-${item.id}`}
+          name="department_id"
+          defaultValue={item.department_id ?? ""}
+        >
+          <option value="">Nenhum</option>
+          {departments.map((department) => (
+            <option key={department.id} value={department.id}>
+              {department.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+
+      <Field
+        label="Gestor responsável"
+        htmlFor={`manager_id-${item.id}`}
+        hint="Quem decide as solicitações de acesso deste usuário em 'Aprovações pendentes'"
+      >
+        <Select id={`manager_id-${item.id}`} name="manager_id" defaultValue={item.manager_id ?? ""}>
+          <option value="">Sem gestor</option>
+          {managers
+            .filter((manager) => manager.id !== item.id)
+            .map((manager) => (
+              <option key={manager.id} value={manager.id}>
+                {manager.full_name} ({ROLE_LABELS[manager.role]})
+              </option>
+            ))}
+        </Select>
+      </Field>
+
+      <Field label="Situação" htmlFor={`is_active-${item.id}`}>
+        <Select
+          id={`is_active-${item.id}`}
+          name="is_active"
+          value={isActive}
+          onChange={(event) => setIsActive(event.target.value)}
+        >
+          <option value="true">Ativo</option>
+          <option value="false">Inativo</option>
+        </Select>
+      </Field>
+
+      {willDeactivate ? (
+        <Alert tone="warning">Esse usuário perderá acesso ao portal imediatamente.</Alert>
+      ) : null}
+
+      <div className="flex justify-end">
+        <SubmitButton variant="primary" pendingLabel="Salvando...">
+          Salvar alterações
+        </SubmitButton>
+      </div>
+    </form>
   );
 }
