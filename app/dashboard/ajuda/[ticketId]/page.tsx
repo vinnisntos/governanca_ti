@@ -42,7 +42,6 @@ type TicketRow = {
   merged_into_id: string | null;
   created_at: string;
   requester: { full_name: string; email: string } | null;
-  merged_into: { ticket_number: number } | null;
 };
 
 type MessageRow = {
@@ -82,7 +81,7 @@ export default async function TicketDetailPage({
   const { data: ticket } = await supabase
     .from("support_tickets")
     .select(
-      "id, requester_id, category, subject, status, ticket_number, merged_into_id, created_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email), merged_into:support_tickets!support_tickets_merged_into_id_fkey(ticket_number)"
+      "id, requester_id, category, subject, status, ticket_number, merged_into_id, created_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email)"
     )
     .eq("id", ticketId)
     .maybeSingle<TicketRow>();
@@ -121,6 +120,21 @@ export default async function TicketDetailPage({
     .eq("ticket_id", ticketId)
     .order("created_at", { ascending: true })
     .returns<MessageRow[]>();
+
+  // Busca separada em vez de embutir via join: o embed de auto-relacionamento
+  // do PostgREST (support_tickets -> support_tickets) depende do cache de
+  // schema do PostgREST estar atualizado com a FK support_tickets_merged_into_id_fkey,
+  // o que nem sempre acontece logo após a migração — uma consulta simples não
+  // depende desse cache.
+  let mergedIntoTicketNumber: number | null = null;
+  if (ticket.merged_into_id) {
+    const { data: mergedInto } = await supabase
+      .from("support_tickets")
+      .select("ticket_number")
+      .eq("id", ticket.merged_into_id)
+      .maybeSingle();
+    mergedIntoTicketNumber = mergedInto?.ticket_number ?? null;
+  }
 
   const isOwner = ticket.requester_id === user.id;
   // Chamado de outra pessoa só chega até aqui pra admin_ti (RLS): quem está
@@ -163,14 +177,14 @@ export default async function TicketDetailPage({
         {new Date(ticket.created_at).toLocaleString("pt-BR")}
       </p>
 
-      {isMerged && ticket.merged_into ? (
+      {isMerged && mergedIntoTicketNumber !== null ? (
         <Alert tone="info" className="mb-4">
           Este chamado foi mesclado com o chamado{" "}
           <a
             href={`/dashboard/ajuda/${ticket.merged_into_id}`}
             className="font-medium underline underline-offset-2"
           >
-            {formatTicketNumber(ticket.merged_into.ticket_number)}
+            {formatTicketNumber(mergedIntoTicketNumber)}
           </a>
           . O atendimento continua por lá.
         </Alert>
