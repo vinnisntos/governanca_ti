@@ -20,8 +20,16 @@ const FIRST_ACCESS_PATH = "/primeiro-acesso";
 // na requisição encaminhada e o aplica automaticamente aos scripts que ele
 // mesmo gera. Ver https://nextjs.org/docs/app/guides/content-security-policy
 function buildCsp(nonce: string) {
+  // O Fast Refresh do "next dev" avalia chunks via eval() — sem 'unsafe-eval'
+  // a CSP quebra toda interatividade client-side apenas neste modo. Produção
+  // (o que importa para segurança) continua sem 'unsafe-eval'.
+  const scriptSrc =
+    process.env.NODE_ENV === "development"
+      ? `'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+      : `'self' 'nonce-${nonce}' 'strict-dynamic'`;
+
   return (
-    `default-src 'self'; script-src 'self' 'nonce-${nonce}' 'strict-dynamic'; ` +
+    `default-src 'self'; script-src ${scriptSrc}; ` +
     "style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.supabase.co; " +
     "connect-src 'self' https://*.supabase.co; frame-ancestors 'none'; " +
     "base-uri 'self'; form-action 'self'"

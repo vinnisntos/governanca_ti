@@ -31,7 +31,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <div className="min-h-screen lg:grid lg:grid-cols-[16rem_1fr]">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-popover"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-primary-600 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-900 focus:shadow-popover"
       >
         Pular para o conteúdo
       </a>
@@ -44,7 +44,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
         <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:hidden">
           <MobileNav role={role} fullName={fullName} email={user.email ?? ""} signOutAction={signOutAction} />
           <div className="flex min-w-0 items-center gap-2">
-            <ShieldCheck className="h-5 w-5 shrink-0 text-primary-600" aria-hidden />
+            <ShieldCheck className="h-5 w-5 shrink-0 text-primary-700" aria-hidden />
             <MobileHeaderTitle role={role} />
           </div>
         </header>

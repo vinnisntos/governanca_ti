@@ -24,7 +24,7 @@ export function SetPasswordForm() {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary-600 text-white shadow-card">
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary-600 text-slate-900 shadow-card">
             <KeyRound className="h-6 w-6" aria-hidden />
           </div>
           <h1 className="mt-3 text-lg font-semibold text-slate-900">Defina sua senha</h1>

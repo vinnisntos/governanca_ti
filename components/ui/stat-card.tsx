@@ -16,7 +16,7 @@ export function StatCard({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-xl border border-slate-200 bg-white p-4 shadow-card", className)}>
+    <div className={cn("rounded-2xl border border-slate-200 bg-white p-4 shadow-card", className)}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium text-slate-600">{label}</p>
         {Icon ? <Icon className="h-4 w-4 text-slate-600" aria-hidden /> : null}

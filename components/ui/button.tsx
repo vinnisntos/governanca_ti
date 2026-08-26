@@ -11,7 +11,9 @@ export type ButtonVariant =
 export type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const variantClasses: Record<ButtonVariant, string> = {
-  primary: "bg-primary-600 text-white hover:bg-primary-700 focus-visible:ring-primary-600",
+  // Texto escuro sobre o verde de marca (#64dc00): igual ao CTA da going2.com.br
+  // — nessa luminância, texto branco não atinge contraste legível (AA).
+  primary: "bg-primary-600 text-slate-900 hover:bg-primary-500 focus-visible:ring-primary-700",
   secondary: "bg-slate-900 text-white hover:bg-slate-800 focus-visible:ring-slate-900",
   outline:
     "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-400",
@@ -38,7 +40,7 @@ export function buttonClassName(
   className?: string
 ) {
   return cn(
-    "inline-flex items-center justify-center whitespace-nowrap rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+    "inline-flex items-center justify-center whitespace-nowrap rounded-full font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
     variantClasses[variant],
     sizeClasses[size],
     className

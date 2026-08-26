@@ -18,7 +18,7 @@ export function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-slate-200 px-2 pb-4">
-        <ShieldCheck className="h-5 w-5 text-primary-600" aria-hidden />
+        <ShieldCheck className="h-5 w-5 text-primary-700" aria-hidden />
         <span className="text-sm font-semibold text-slate-900">Governança de TI</span>
       </div>
 
