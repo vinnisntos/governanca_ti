@@ -166,7 +166,12 @@ export async function updateTicketStatusAction(formData: FormData) {
     .maybeSingle();
 
   if (!current) {
-    redirectWithError(PATH, "Chamado não encontrado.");
+    // detailPath, não PATH: quem chega aqui é sempre admin_ti (checado acima),
+    // então mandar pra própria Central de Ajuda (PATH) faria o chamado
+    // "sumir" da tela — a página do chamado mostra o estado de não encontrado
+    // corretamente e ainda mantém o botão de voltar apontando pro Painel de
+    // Chamados.
+    redirectWithError(detailPath, "Chamado não encontrado.");
   }
 
   // A policy support_ticket_messages_insert bloqueia mensagens novas em
@@ -206,7 +211,7 @@ export async function updateTicketStatusAction(formData: FormData) {
   }
 
   if (!updated || updated.length === 0) {
-    redirectWithError(PATH, "Chamado não encontrado.");
+    redirectWithError(detailPath, "Chamado não encontrado.");
   }
 
   if (leavingBlockingState) {
@@ -363,7 +368,10 @@ export async function mergeTicketsAction(formData: FormData) {
     .maybeSingle();
 
   if (!source) {
-    redirectWithError(PATH, "Chamado de origem não encontrado.");
+    // detailPath, não PATH — mesmo motivo do updateTicketStatusAction: quem
+    // chega aqui é sempre admin_ti, mandar pra Central de Ajuda faria o
+    // chamado parecer ter sumido em vez de mostrar que não foi encontrado.
+    redirectWithError(detailPath, "Chamado de origem não encontrado.");
   }
 
   if (source.merged_into_id) {

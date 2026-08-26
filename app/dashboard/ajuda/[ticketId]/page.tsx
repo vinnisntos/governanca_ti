@@ -1,4 +1,5 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
+import { LifeBuoy } from "lucide-react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   updateTicketStatusAction,
@@ -19,7 +20,17 @@ import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { Alert } from "@/components/ui/alert";
+import { EmptyState } from "@/components/ui/empty-state";
 import { LinkButton } from "@/components/ui/button";
+
+// O botão "voltar" e o destino pós-navegação dependem de quem está olhando:
+// um admin_ti chega aqui pelo Painel de Chamados (/dashboard/admin/chamados)
+// quando o chamado não é dele; o próprio solicitante sempre chega pela
+// Central de Ajuda (/dashboard/ajuda). Chamado de outra pessoa só é visível
+// pra admin_ti (RLS support_tickets_select), então essa combinação é
+// suficiente pra distinguir a origem sem depender de query param.
+const ADMIN_BACK = { href: "/dashboard/admin/chamados", label: "Painel de Chamados" };
+const USER_BACK = { href: "/dashboard/ajuda", label: "Central de Ajuda" };
 
 type TicketRow = {
   id: string;
@@ -77,7 +88,29 @@ export default async function TicketDetailPage({
     .maybeSingle<TicketRow>();
 
   if (!ticket) {
-    notFound();
+    // Mesmo tratamento pra chamado inexistente e chamado de outra pessoa (a
+    // policy support_tickets_select não distingue os dois de propósito, pra
+    // não vazar a existência do chamado de outra pessoa) — mas o botão de
+    // voltar ainda precisa respeitar de onde quem está vendo normalmente
+    // chegaria: admin_ti volta pro Painel de Chamados, o solicitante volta
+    // pra própria Central de Ajuda.
+    const back = isAdmin ? ADMIN_BACK : USER_BACK;
+    return (
+      <>
+        <FlashToast success={successMessage} error={errorMessage} />
+        <PageHeader title="Chamado não encontrado" back={back} />
+        <EmptyState
+          icon={LifeBuoy}
+          title="Este chamado não existe ou não está disponível"
+          description={`Ele pode ter sido removido, cancelado ou o link estar incorreto. (ID: ${ticketId})`}
+        />
+        <div className="mt-4">
+          <LinkButton href={back.href} variant="primary">
+            Voltar para {back.label}
+          </LinkButton>
+        </div>
+      </>
+    );
   }
 
   const { data: messages } = await supabase
@@ -90,6 +123,9 @@ export default async function TicketDetailPage({
     .returns<MessageRow[]>();
 
   const isOwner = ticket.requester_id === user.id;
+  // Chamado de outra pessoa só chega até aqui pra admin_ti (RLS): quem está
+  // olhando veio do Painel de Chamados, não da própria Central de Ajuda.
+  const back = isAdmin && !isOwner ? ADMIN_BACK : USER_BACK;
   const isMerged = ticket.merged_into_id !== null;
   const canReply = !isMerged && ticket.status !== "fechado" && ticket.status !== "cancelado" && (isOwner || isAdmin);
   const canClose = isOwner && !isMerged && ["aberto", "em_andamento", "resolvido"].includes(ticket.status);
@@ -102,7 +138,7 @@ export default async function TicketDetailPage({
 
       <PageHeader
         title={`Chamado ${formatTicketNumber(ticket.ticket_number)} — ${ticket.subject}`}
-        back={{ href: "/dashboard/ajuda", label: "Central de Ajuda" }}
+        back={back}
         description={
           isAdmin && ticket.requester
             ? `Aberto por ${ticket.requester.full_name} (${ticket.requester.email})`
