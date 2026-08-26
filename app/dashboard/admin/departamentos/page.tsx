@@ -1,7 +1,5 @@
 import { Plus } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
 import { createDepartmentAction } from "./actions";
 import { DepartmentList } from "./department-list";
 import { PageHeader } from "@/components/ui/page-header";
@@ -21,20 +19,12 @@ export default async function DepartmentsAdminPage({
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  // O middleware já bloqueia quem não é admin_ti de chegar nesta página; a
-  // autoridade real continua sendo a policy departments_write_admin.
-  const { data: departments } = await supabase
-    .from("departments")
-    .select("id, name")
-    .order("name")
-    .returns<DepartmentRow[]>();
+  // app/dashboard/admin/layout.tsx já garante admin_ti — sem RLS, esta
+  // página vê todos os departamentos.
+  const { rows: departments } = await pool.query<DepartmentRow>(
+    "select id, name from departments order by name"
+  );
 
   return (
     <>
@@ -69,7 +59,7 @@ export default async function DepartmentsAdminPage({
       />
 
       <Section title="Departamentos cadastrados">
-        <DepartmentList departments={departments ?? []} />
+        <DepartmentList departments={departments} />
       </Section>
     </>
   );

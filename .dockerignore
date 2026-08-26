@@ -1,0 +1,26 @@
+node_modules
+.next
+.git
+.gitignore
+
+# env com segredos reais — nunca deve entrar no contexto de build
+.env
+.env.local
+.env.*.local
+
+# storage local de dev
+.local-storage
+
+# artefatos de dev/teste, não usados em produção
+test
+vitest.config.ts
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+.DS_Store
+
+# docs internas gitignoradas (não existem no repo, mas por garantia)
+ARQUITETURA_TECNICA.md
+ARCH_DECISIONS.txt
+SETUP.md
+README.txt

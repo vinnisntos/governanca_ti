@@ -1,7 +1,5 @@
 import { Plus } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
 import { createCatalogItemAction } from "./actions";
 import { CatalogList } from "./catalog-list";
 import { PageHeader } from "@/components/ui/page-header";
@@ -25,29 +23,47 @@ export type CatalogRow = {
   departments: { name: string } | null;
 };
 
+type CatalogQueryRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  monthly_cost: number | null;
+  owner_department_id: string | null;
+  department_name: string | null;
+};
+
+type DepartmentOption = { id: string; name: string };
+
 export default async function AccessCatalogAdminPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  // O middleware já bloqueia quem não é admin_ti de chegar nesta página; a
-  // autoridade real continua sendo a policy access_catalog_write_admin.
-  const [{ data: catalog }, { data: departments }] = await Promise.all([
-    supabase
-      .from("access_catalog")
-      .select("id, name, description, is_active, monthly_cost, owner_department_id, departments(name)")
-      .order("name")
-      .returns<CatalogRow[]>(),
-    supabase.from("departments").select("id, name").order("name"),
+  // app/dashboard/admin/layout.tsx já garante admin_ti — sem RLS, admin vê
+  // todo o catálogo, inclusive itens inativos.
+  const [{ rows: rawCatalog }, { rows: departments }] = await Promise.all([
+    pool.query<CatalogQueryRow>(
+      `select ac.id, ac.name, ac.description, ac.is_active, ac.monthly_cost, ac.owner_department_id,
+              d.name as department_name
+       from access_catalog ac
+       left join departments d on d.id = ac.owner_department_id
+       order by ac.name`
+    ),
+    pool.query<DepartmentOption>("select id, name from departments order by name"),
   ]);
+
+  const catalog: CatalogRow[] = rawCatalog.map((item) => ({
+    id: item.id,
+    name: item.name,
+    description: item.description,
+    is_active: item.is_active,
+    monthly_cost: item.monthly_cost,
+    owner_department_id: item.owner_department_id,
+    departments: item.department_name ? { name: item.department_name } : null,
+  }));
 
   return (
     <>
@@ -82,7 +98,7 @@ export default async function AccessCatalogAdminPage({
               <Field label="Departamento responsável" htmlFor="owner_department_id" hint="Opcional">
                 <Select id="owner_department_id" name="owner_department_id" defaultValue="">
                   <option value="">Nenhum</option>
-                  {(departments ?? []).map((department) => (
+                  {departments.map((department) => (
                     <option key={department.id} value={department.id}>
                       {department.name}
                     </option>
@@ -101,7 +117,7 @@ export default async function AccessCatalogAdminPage({
       />
 
       <Section title="Sistemas cadastrados">
-        <CatalogList catalog={catalog ?? []} departments={departments ?? []} />
+        <CatalogList catalog={catalog} departments={departments} />
       </Section>
     </>
   );

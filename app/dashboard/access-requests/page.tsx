@@ -1,7 +1,7 @@
 import { KeySquare, Plus } from "lucide-react";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import { createAccessRequestAction, cancelAccessRequestAction } from "./actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
@@ -32,6 +32,8 @@ const STATUS_TONE = {
   revogado: "danger",
 } as const;
 
+type CatalogOption = { id: string; name: string };
+
 type AccessRequestRow = {
   id: string;
   justification: string;
@@ -40,8 +42,8 @@ type AccessRequestRow = {
   revoke_reason: string | null;
   decision_at: string | null;
   created_at: string;
-  access_catalog: { name: string } | null;
   requested_system_name: string | null;
+  catalog_name: string | null;
 };
 
 export default async function AccessRequestsPage({
@@ -50,27 +52,25 @@ export default async function AccessRequestsPage({
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
+  const session = await getSession();
 
-  if (!user) {
+  if (!session) {
     redirect("/login");
   }
 
-  const [{ data: catalog }, { data: requests }] = await Promise.all([
-    supabase
-      .from("access_catalog")
-      .select("id, name")
-      .eq("is_active", true)
-      .order("name"),
-    supabase
-      .from("access_requests")
-      .select(
-        "id, justification, status, review_notes, revoke_reason, decision_at, created_at, requested_system_name, access_catalog(name)"
-      )
-      .eq("requester_id", user.id)
-      .order("created_at", { ascending: false })
-      .returns<AccessRequestRow[]>(),
+  const [{ rows: catalog }, { rows: requests }] = await Promise.all([
+    pool.query<CatalogOption>(
+      "select id, name from access_catalog where is_active = true order by name"
+    ),
+    pool.query<AccessRequestRow>(
+      `select ar.id, ar.justification, ar.status, ar.review_notes, ar.revoke_reason, ar.decision_at,
+              ar.created_at, ar.requested_system_name, cat.name as catalog_name
+       from access_requests ar
+       left join access_catalog cat on cat.id = ar.system_id
+       where ar.requester_id = $1
+       order by ar.created_at desc`,
+      [session.id]
+    ),
   ]);
 
   return (
@@ -96,7 +96,7 @@ export default async function AccessRequestsPage({
             >
               <RequestAccessForm
                 action={createAccessRequestAction.bind(null, "/dashboard/access-requests")}
-                catalog={catalog ?? []}
+                catalog={catalog}
               />
             </Modal>
           </>
@@ -104,7 +104,7 @@ export default async function AccessRequestsPage({
       />
 
       <Section title="Histórico">
-        {!requests || requests.length === 0 ? (
+        {requests.length === 0 ? (
           <EmptyState
             icon={KeySquare}
             title="Nenhuma solicitação registrada"
@@ -118,10 +118,8 @@ export default async function AccessRequestsPage({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-medium text-slate-900">
-                        {request.access_catalog?.name ??
-                          request.requested_system_name ??
-                          "Sistema removido"}
-                        {!request.access_catalog && request.requested_system_name ? (
+                        {request.catalog_name ?? request.requested_system_name ?? "Sistema removido"}
+                        {!request.catalog_name && request.requested_system_name ? (
                           <span className="ml-2 text-xs font-normal text-slate-600">
                             (fora do catálogo)
                           </span>

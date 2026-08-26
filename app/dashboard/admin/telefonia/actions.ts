@@ -1,14 +1,14 @@
 "use server";
 
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
-import { requireRole } from "@/lib/utils/require-role";
+import { requireRole } from "@/lib/auth/require-role";
+import { withRequestContext } from "@/lib/db/context";
+import { getClientIp } from "@/lib/utils/client-ip";
 import { upsertMobileLineSchema, updateMobileLineSchema } from "@/lib/validations/mobile-lines";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-// Autorização real é a policy mobile_lines_write_admin (RLS); requireRole()
-// é defesa em profundidade para dar uma mensagem clara em vez de depender só
-// do efeito colateral silencioso do RLS.
+// Sem RLS no banco: requireRole(["admin_ti"]) é a autoridade real de escrita
+// nesta tabela agora.
 
 const PATH = "/dashboard/admin/telefonia";
 
@@ -28,7 +28,7 @@ function toNumberOrNull(value: FormDataEntryValue | null) {
 export async function createMobileLineAction(formData: FormData) {
   await assertTrustedOrigin();
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
@@ -48,10 +48,28 @@ export async function createMobileLineAction(formData: FormData) {
     redirectWithError(PATH, "Preencha número, operadora, plano, custo e tipo corretamente.");
   }
 
-  const { error } = await supabase.from("mobile_lines").insert(parsed.data);
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[mobile-lines] create failed", { message: error.message });
+  try {
+    await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query(
+        `insert into mobile_lines
+           (phone_number, carrier, plan_name, monthly_cost, line_type, status, assigned_to, department_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          parsed.data.phone_number,
+          parsed.data.carrier,
+          parsed.data.plan_name,
+          parsed.data.monthly_cost,
+          parsed.data.line_type,
+          parsed.data.status,
+          parsed.data.assigned_to,
+          parsed.data.department_id,
+        ]
+      )
+    );
+  } catch (error) {
+    console.error("[mobile-lines] create failed", { message: (error as Error).message });
     redirectWithError(PATH, "Não foi possível cadastrar a linha (número já existe?).");
   }
 
@@ -61,7 +79,7 @@ export async function createMobileLineAction(formData: FormData) {
 export async function updateMobileLineAction(formData: FormData) {
   await assertTrustedOrigin();
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
@@ -81,20 +99,32 @@ export async function updateMobileLineAction(formData: FormData) {
     redirectWithError(PATH, "Dados inválidos para atualizar a linha.");
   }
 
-  const { id, ...updateFields } = parsed.data;
-  const { data: updated, error } = await supabase
-    .from("mobile_lines")
-    .update(updateFields)
-    .eq("id", id)
-    .select("id");
+  const clientIp = await getClientIp();
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query(
+      `update mobile_lines
+       set carrier = $2, plan_name = $3, monthly_cost = $4, line_type = $5,
+           status = $6, assigned_to = $7, department_id = $8
+       where id = $1
+       returning id`,
+      [
+        parsed.data.id,
+        parsed.data.carrier,
+        parsed.data.plan_name,
+        parsed.data.monthly_cost,
+        parsed.data.line_type,
+        parsed.data.status,
+        parsed.data.assigned_to,
+        parsed.data.department_id,
+      ]
+    )
+  ).catch((error: unknown) => {
+    console.error("[mobile-lines] update failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
 
-  if (error) {
-    console.error("[mobile-lines] update failed", { message: error.message });
-    redirectWithError(PATH, "Não foi possível atualizar a linha.");
-  }
-
-  if (!updated || updated.length === 0) {
-    redirectWithError(PATH, "Linha não encontrada ou você não tem permissão para alterá-la.");
+  if (!rowCount) {
+    redirectWithError(PATH, "Linha não encontrada ou não foi possível atualizá-la.");
   }
 
   redirectWithSuccess(PATH, "Linha atualizada.");

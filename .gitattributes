@@ -1,0 +1,4 @@
+# Scripts de shell precisam de LF mesmo em checkout no Windows (core.autocrlf) —
+# CRLF quebra o shebang/execução deles dentro do container Linux do Docker.
+*.sh text eol=lf
+Dockerfile text eol=lf

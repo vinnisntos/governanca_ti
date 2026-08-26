@@ -1,7 +1,9 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
+import { withRequestContext } from "@/lib/db/context";
+import { getClientIp } from "@/lib/utils/client-ip";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
 import {
   createAccessRequestSchema,
@@ -10,12 +12,9 @@ import {
 } from "@/lib/validations/access-requests";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-//
-// status nunca é enviado no INSERT: o valor default 'pendente' da coluna é
-// aplicado pelo Postgres antes da avaliação da policy de RLS
-// (access_requests_insert), então o client não tem como forjar outro status
-// na criação mesmo se este Server Action tivesse um bug.
+// status nunca é enviado no INSERT: o valor default 'pendente' da coluna
+// (db/migrations/0001_init.sql) é aplicado pelo Postgres — o client não tem
+// como forjar outro status na criação.
 
 const PATH = "/dashboard/access-requests";
 
@@ -38,26 +37,29 @@ export async function createAccessRequestAction(redirectPath: string, formData: 
     );
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     redirect("/login");
   }
 
   const isOtherSystem = parsed.data.system_id === OTHER_SYSTEM_VALUE;
+  const clientIp = await getClientIp();
 
-  const { error } = await supabase.from("access_requests").insert({
-    requester_id: user.id,
-    system_id: isOtherSystem ? null : parsed.data.system_id,
-    requested_system_name: isOtherSystem ? parsed.data.requested_system_name : null,
-    justification: parsed.data.justification,
-  });
-
-  if (error) {
-    console.error("[access-requests] create failed", { message: error.message });
+  try {
+    await withRequestContext({ userId: session.id, clientIp }, (client) =>
+      client.query(
+        `insert into access_requests (requester_id, system_id, requested_system_name, justification)
+         values ($1, $2, $3, $4)`,
+        [
+          session.id,
+          isOtherSystem ? null : parsed.data.system_id,
+          isOtherSystem ? parsed.data.requested_system_name : null,
+          parsed.data.justification,
+        ]
+      )
+    );
+  } catch (error) {
+    console.error("[access-requests] create failed", { message: (error as Error).message });
     redirectWithError(redirectPath, "Não foi possível registrar a solicitação.");
   }
 
@@ -75,26 +77,30 @@ export async function cancelAccessRequestAction(formData: FormData) {
     redirectWithError(PATH, "Solicitação inválida.");
   }
 
-  const supabase = await createSupabaseServerClient();
-
-  // A policy access_requests_update_requester só permite esta operação
-  // enquanto status = 'pendente' e o solicitante é o próprio usuário. Sem
-  // .select(), um UPDATE bloqueado pelo RLS (ex.: tentativa de cancelar a
-  // solicitação de outro usuário) afeta 0 linhas e devolve { error: null } —
-  // não um erro — então checamos explicitamente se algo foi de fato alterado
-  // em vez de assumir sucesso.
-  const { data: updated, error } = await supabase
-    .from("access_requests")
-    .update({ status: "cancelado" })
-    .eq("id", parsed.data.request_id)
-    .select("id");
-
-  if (error) {
-    console.error("[access-requests] cancel failed", { message: error.message });
-    redirectWithError(PATH, "Não foi possível cancelar a solicitação.");
+  const session = await getSession();
+  if (!session) {
+    redirect("/login");
   }
 
-  if (!updated || updated.length === 0) {
+  const clientIp = await getClientIp();
+
+  // Só cancela a própria solicitação, e só enquanto ainda pendente — mesma
+  // regra que antes vivia na policy access_requests_update_requester.
+  // rowCount === 0 cobre tanto "não existe" quanto "não é sua"/"não está
+  // mais pendente" — não distinguimos os casos pro cliente por segurança.
+  const { rowCount } = await withRequestContext({ userId: session.id, clientIp }, (client) =>
+    client.query(
+      `update access_requests
+       set status = 'cancelado'
+       where id = $1 and requester_id = $2 and status = 'pendente'`,
+      [parsed.data.request_id, session.id]
+    )
+  ).catch((error: unknown) => {
+    console.error("[access-requests] cancel failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
+
+  if (!rowCount) {
     redirectWithError(
       PATH,
       "Solicitação não encontrada ou você não tem permissão para cancelá-la."

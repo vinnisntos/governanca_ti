@@ -1,0 +1,20 @@
+# Só para build/teste local (`docker compose up --build`) contra o Postgres
+# já existente no Dokploy. No Dokploy em si, a aplicação é implantada como
+# "Application" (tipo Dockerfile), não via este compose — as env vars lá são
+# configuradas na própria UI do Dokploy, e o volume de storage é criado por
+# lá também.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    volumes:
+      - storage:/data/storage
+    restart: unless-stopped
+
+volumes:
+  storage:

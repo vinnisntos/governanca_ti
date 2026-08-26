@@ -1,7 +1,6 @@
 import { CheckCircle2, ClipboardEdit, Laptop2 } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
 import { submitCheckinAction } from "./actions";
 import { PageHeader } from "@/components/ui/page-header";
@@ -54,7 +53,6 @@ type CheckinRow = {
 
 type ContractRow = {
   id: string;
-  storage_path: string;
   signed_at: string | null;
 };
 
@@ -64,46 +62,30 @@ export default async function HardwarePage({
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
+  const session = await getSession();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const [{ data: assets }, { data: checkins }, { data: contracts }] = await Promise.all([
-    supabase
-      .from("hardware_assets")
-      .select("id, asset_tag, category, model, status")
-      .eq("assigned_to", user.id)
-      .returns<AssetRow[]>(),
-    supabase
-      .from("hardware_checkins")
-      .select("id, asset_id, reference_month, physical_condition, maintenance_requested, maintenance_resolved, created_at")
-      .eq("profile_id", user.id)
-      .order("created_at", { ascending: false })
-      .returns<CheckinRow[]>(),
-    supabase
-      .from("hardware_contracts")
-      .select("id, storage_path, signed_at")
-      .eq("profile_id", user.id)
-      .order("created_at", { ascending: false })
-      .returns<ContractRow[]>(),
+  const [{ rows: assets }, { rows: checkins }, { rows: contracts }] = await Promise.all([
+    pool.query<AssetRow>(
+      "select id, asset_tag, category, model, status from hardware_assets where assigned_to = $1",
+      [session!.id]
+    ),
+    pool.query<CheckinRow>(
+      `select id, asset_id, reference_month, physical_condition, maintenance_requested, maintenance_resolved, created_at
+       from hardware_checkins where profile_id = $1 order by created_at desc`,
+      [session!.id]
+    ),
+    pool.query<ContractRow>(
+      "select id, signed_at from hardware_contracts where profile_id = $1 order by created_at desc",
+      [session!.id]
+    ),
   ]);
 
   const referenceMonth = currentReferenceMonth();
   const checkinsThisMonth = new Set(
-    (checkins ?? []).filter((c) => c.reference_month === referenceMonth).map((c) => c.asset_id)
+    checkins.filter((c) => c.reference_month === referenceMonth).map((c) => c.asset_id)
   );
 
-  const latestContract = contracts?.[0];
-  let contractUrl: string | null = null;
-  if (latestContract) {
-    const { data } = await supabase.storage
-      .from("hardware-contracts")
-      .createSignedUrl(latestContract.storage_path, 60 * 10);
-    contractUrl = data?.signedUrl ?? null;
-  }
+  const latestContract = contracts[0];
 
   return (
     <>
@@ -120,15 +102,13 @@ export default async function HardwarePage({
             Termo de responsabilidade assinado em{" "}
             {latestContract.signed_at ? new Date(latestContract.signed_at).toLocaleDateString("pt-BR") : "—"}
           </p>
-          {contractUrl ? (
-            <LinkButton href={contractUrl} target="_blank" rel="noreferrer" variant="outline" size="sm">
-              Ver PDF
-            </LinkButton>
-          ) : null}
+          <LinkButton href={`/dashboard/hardware/contratos/${latestContract.id}`} target="_blank" rel="noreferrer" variant="outline" size="sm">
+            Ver PDF
+          </LinkButton>
         </Card>
       ) : null}
 
-      {!assets || assets.length === 0 ? (
+      {assets.length === 0 ? (
         <EmptyState
           icon={Laptop2}
           title="Nenhum equipamento vinculado"
@@ -138,7 +118,7 @@ export default async function HardwarePage({
         <ul className="space-y-4">
           {assets.map((asset) => {
             const alreadyDone = checkinsThisMonth.has(asset.id);
-            const history = (checkins ?? []).filter((c) => c.asset_id === asset.id);
+            const history = checkins.filter((c) => c.asset_id === asset.id);
 
             return (
               <li key={asset.id}>

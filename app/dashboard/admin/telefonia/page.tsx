@@ -1,7 +1,5 @@
 import { Plus } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
 import { createMobileLineAction } from "./actions";
 import { LINE_TYPE_LABELS, STATUS_LABELS } from "./labels";
 import { LineList } from "./line-list";
@@ -30,34 +28,67 @@ export type MobileLineRow = {
   departments: { name: string } | null;
 };
 
+type LineQueryRow = {
+  id: string;
+  phone_number: string;
+  carrier: string;
+  plan_name: string;
+  monthly_cost: string;
+  line_type: string;
+  status: keyof typeof STATUS_LABELS;
+  assigned_to: string | null;
+  department_id: string | null;
+  profile_full_name: string | null;
+  profile_email: string | null;
+  department_name: string | null;
+};
+
+type ProfileOption = { id: string; full_name: string; email: string };
+type DepartmentOption = { id: string; name: string };
+
 export default async function TelefoniaAdminPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const [{ data: lines }, { data: profiles }, { data: departments }] = await Promise.all([
-    supabase
-      .from("mobile_lines")
-      .select(
-        "id, phone_number, carrier, plan_name, monthly_cost, line_type, status, assigned_to, department_id, profiles(full_name, email), departments(name)"
-      )
-      .order("phone_number")
-      .returns<MobileLineRow[]>(),
-    supabase.from("profiles").select("id, full_name, email").eq("is_active", true).order("full_name"),
-    supabase.from("departments").select("id, name").order("name"),
+  // app/dashboard/admin/layout.tsx já garante admin_ti — sem RLS, admin vê
+  // todas as linhas, sem filtro de linha nenhum.
+  const [{ rows: rawLines }, { rows: profiles }, { rows: departments }] = await Promise.all([
+    pool.query<LineQueryRow>(
+      `select ml.id, ml.phone_number, ml.carrier, ml.plan_name, ml.monthly_cost, ml.line_type, ml.status,
+              ml.assigned_to, ml.department_id,
+              p.full_name as profile_full_name, p.email as profile_email,
+              d.name as department_name
+       from mobile_lines ml
+       left join profiles p on p.id = ml.assigned_to
+       left join departments d on d.id = ml.department_id
+       order by ml.phone_number`
+    ),
+    pool.query<ProfileOption>(
+      "select id, full_name, email from profiles where is_active = true order by full_name"
+    ),
+    pool.query<DepartmentOption>("select id, name from departments order by name"),
   ]);
 
-  const totalMonthlyCost = (lines ?? [])
+  const lines: MobileLineRow[] = rawLines.map((l) => ({
+    id: l.id,
+    phone_number: l.phone_number,
+    carrier: l.carrier,
+    plan_name: l.plan_name,
+    monthly_cost: Number(l.monthly_cost),
+    line_type: l.line_type,
+    status: l.status,
+    assigned_to: l.assigned_to,
+    department_id: l.department_id,
+    profiles: l.profile_full_name ? { full_name: l.profile_full_name, email: l.profile_email! } : null,
+    departments: l.department_name ? { name: l.department_name } : null,
+  }));
+
+  const totalMonthlyCost = lines
     .filter((l) => l.status === "ativa")
-    .reduce((sum, l) => sum + Number(l.monthly_cost), 0);
+    .reduce((sum, l) => sum + l.monthly_cost, 0);
 
   return (
     <>
@@ -111,7 +142,7 @@ export default async function TelefoniaAdminPage({
               <Field label="Responsável" htmlFor="assigned_to" hint="Opcional">
                 <Select id="assigned_to" name="assigned_to" defaultValue="">
                   <option value="">Nenhum</option>
-                  {(profiles ?? []).map((p) => (
+                  {profiles.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.full_name} ({p.email})
                     </option>
@@ -121,7 +152,7 @@ export default async function TelefoniaAdminPage({
               <Field label="Setor" htmlFor="department_id" hint="Opcional">
                 <Select id="department_id" name="department_id" defaultValue="">
                   <option value="">Nenhum</option>
-                  {(departments ?? []).map((d) => (
+                  {departments.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
                     </option>
@@ -145,7 +176,7 @@ export default async function TelefoniaAdminPage({
       />
 
       <Section title="Linhas cadastradas">
-        <LineList lines={lines ?? []} profiles={profiles ?? []} departments={departments ?? []} />
+        <LineList lines={lines} profiles={profiles} departments={departments} />
       </Section>
     </>
   );

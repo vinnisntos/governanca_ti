@@ -1,27 +1,32 @@
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
 import { PageHeader } from "@/components/ui/page-header";
 import { TicketList, type TicketListRow } from "@/app/dashboard/ajuda/ticket-list";
 
+type TicketQueryRow = TicketListRow & {
+  requester_full_name: string | null;
+  requester_email: string | null;
+};
+
 export default async function AdminTicketQueuePage() {
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
+  // app/dashboard/admin/layout.tsx já garante admin_ti — sem RLS no banco,
+  // aqui não há mais nenhuma linha restrita: admin vê todos os chamados.
+  const { rows } = await pool.query<TicketQueryRow>(
+    `select t.id, t.category, t.subject, t.status, t.ticket_number, t.updated_at,
+            r.full_name as requester_full_name, r.email as requester_email
+     from support_tickets t
+     left join profiles r on r.id = t.requester_id
+     order by t.updated_at desc`
+  );
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  // O middleware já bloqueia quem não é admin_ti; a autoridade real é a
-  // policy support_tickets_update_admin/select (RLS) — aqui a query só usa o
-  // acesso de leitura que aquela policy já concede a todo admin_ti.
-  const { data: tickets } = await supabase
-    .from("support_tickets")
-    .select(
-      "id, category, subject, status, ticket_number, updated_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email)"
-    )
-    .order("updated_at", { ascending: false })
-    .returns<TicketListRow[]>();
+  const tickets: TicketListRow[] = rows.map((row) => ({
+    id: row.id,
+    category: row.category,
+    subject: row.subject,
+    status: row.status,
+    ticket_number: row.ticket_number,
+    updated_at: row.updated_at,
+    requester: row.requester_full_name ? { full_name: row.requester_full_name, email: row.requester_email ?? "" } : null,
+  }));
 
   return (
     <>
@@ -30,11 +35,7 @@ export default async function AdminTicketQueuePage() {
         description="Todos os chamados abertos pelos colaboradores, para acompanhamento e resposta do TI."
       />
 
-      <TicketList
-        tickets={tickets ?? []}
-        showRequester
-        emptyTitle="Nenhum chamado registrado ainda"
-      />
+      <TicketList tickets={tickets} showRequester emptyTitle="Nenhum chamado registrado ainda" />
     </>
   );
 }

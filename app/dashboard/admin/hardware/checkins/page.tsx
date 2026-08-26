@@ -1,7 +1,5 @@
 import { Wrench } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
 import { resolveMaintenanceAction } from "./actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
@@ -31,38 +29,52 @@ type MaintenanceRow = {
   profiles: { full_name: string; email: string } | null;
 };
 
+type MaintenanceQueryRow = {
+  id: string;
+  physical_condition: string;
+  condition_notes: string | null;
+  maintenance_details: string | null;
+  maintenance_resolved: boolean;
+  admin_notes: string | null;
+  photo_storage_path: string;
+  created_at: string;
+  asset_tag: string | null;
+  asset_model: string | null;
+  profile_full_name: string | null;
+  profile_email: string | null;
+};
+
 export default async function HardwareMaintenanceQueuePage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
 
-  if (!user) {
-    redirect("/login");
-  }
+  // app/dashboard/admin/layout.tsx já garante admin_ti.
+  const { rows: rawCheckins } = await pool.query<MaintenanceQueryRow>(
+    `select hc.id, hc.physical_condition, hc.condition_notes, hc.maintenance_details,
+            hc.maintenance_resolved, hc.admin_notes, hc.photo_storage_path, hc.created_at,
+            ha.asset_tag, ha.model as asset_model, p.full_name as profile_full_name, p.email as profile_email
+     from hardware_checkins hc
+     left join hardware_assets ha on ha.id = hc.asset_id
+     left join profiles p on p.id = hc.profile_id
+     where hc.maintenance_requested = true
+     order by hc.maintenance_resolved asc, hc.created_at desc`
+  );
 
-  // O middleware já bloqueia quem não é admin_ti; a autoridade real é a
-  // policy hardware_checkins_update_admin (RLS).
-  const { data: checkins } = await supabase
-    .from("hardware_checkins")
-    .select(
-      "id, physical_condition, condition_notes, maintenance_details, maintenance_resolved, admin_notes, photo_storage_path, created_at, hardware_assets(asset_tag, model), profiles(full_name, email)"
-    )
-    .eq("maintenance_requested", true)
-    .order("maintenance_resolved", { ascending: true })
-    .order("created_at", { ascending: false })
-    .returns<MaintenanceRow[]>();
-
-  const photoUrlById = new Map<string, string>();
-  for (const checkin of checkins ?? []) {
-    const { data } = await supabase.storage
-      .from("hardware-checkin-photos")
-      .createSignedUrl(checkin.photo_storage_path, 60 * 10);
-    if (data?.signedUrl) photoUrlById.set(checkin.id, data.signedUrl);
-  }
+  const checkins: MaintenanceRow[] = rawCheckins.map((c) => ({
+    id: c.id,
+    physical_condition: c.physical_condition,
+    condition_notes: c.condition_notes,
+    maintenance_details: c.maintenance_details,
+    maintenance_resolved: c.maintenance_resolved,
+    admin_notes: c.admin_notes,
+    photo_storage_path: c.photo_storage_path,
+    created_at: c.created_at,
+    hardware_assets: c.asset_tag ? { asset_tag: c.asset_tag, model: c.asset_model! } : null,
+    profiles: c.profile_full_name ? { full_name: c.profile_full_name, email: c.profile_email! } : null,
+  }));
 
   return (
     <>
@@ -74,7 +86,7 @@ export default async function HardwareMaintenanceQueuePage({
       />
 
       <Section>
-        {!checkins || checkins.length === 0 ? (
+        {checkins.length === 0 ? (
           <EmptyState icon={Wrench} title="Nenhuma solicitação de manutenção registrada" />
         ) : (
           <ul className="space-y-4">
@@ -103,16 +115,14 @@ export default async function HardwareMaintenanceQueuePage({
                     <p className="mt-1 text-sm text-slate-600">Obs.: {checkin.condition_notes}</p>
                   ) : null}
 
-                  {photoUrlById.has(checkin.id) ? (
-                    <a
-                      href={photoUrlById.get(checkin.id)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-block text-sm text-primary-700 underline-offset-2 hover:underline"
-                    >
-                      Ver foto do check-in
-                    </a>
-                  ) : null}
+                  <a
+                    href={`/dashboard/admin/hardware/checkins/${checkin.id}/foto`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-block text-sm text-primary-700 underline-offset-2 hover:underline"
+                  >
+                    Ver foto do check-in
+                  </a>
 
                   {checkin.maintenance_resolved ? (
                     checkin.admin_notes ? (

@@ -1,15 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Regressão para a Vulnerabilidade/Instabilidade #1 do relatório de auditoria
-// (V2 em RELATORIO_SEGURANCA_E_TESTES.txt): `.update(...).eq("id", ...)` sem
-// `.select()` fazia o @supabase/supabase-js usar `Prefer: return=minimal`. Se
-// a policy de RLS filtrasse a linha (usuário sem permissão sobre aquele
-// registro), o Postgres/PostgREST afetava 0 linhas e devolvia
-// `{ data: null, error: null }` — NÃO um erro — e o código tratava isso como
-// sucesso. A correção encadeia `.select("id")` e trata array vazio como
-// "sem permissão/não encontrado". Este arquivo garante que essa correção não
-// regrida: cobre tanto o caso bloqueado pelo RLS (deve reportar erro) quanto
-// o caso normal (deve continuar reportando sucesso).
+// (V2 em RELATORIO_SEGURANCA_E_TESTES.txt): no mundo Supabase, um UPDATE sem
+// `.select()` fazia o @supabase/supabase-js usar `Prefer: return=minimal` — se
+// a policy de RLS filtrasse a linha, o Postgres/PostgREST afetava 0 linhas e
+// devolvia sucesso silencioso. Sem RLS, o mesmo risco existe de outra forma:
+// um UPDATE com WHERE explícito que não bate (usuário sem permissão) também
+// afeta 0 linhas — a correção continua sendo checar rowCount/RETURNING e
+// tratar 0 como erro, nunca sucesso. Este arquivo garante que essa checagem
+// não regrida, agora contra lib/db/context.withRequestContext.
 
 function mockTrustedOrigin() {
   vi.doMock("next/headers", () => ({
@@ -25,15 +24,26 @@ function mockTrustedOrigin() {
   }));
 }
 
-function mockSupabaseUpdate(selectResult: { data: unknown; error: unknown }) {
-  const select = vi.fn().mockResolvedValue(selectResult);
-  const eq = vi.fn(() => ({ select }));
-  const update = vi.fn(() => ({ eq }));
-  const from = vi.fn(() => ({ update }));
-  vi.doMock("@/lib/supabase/server", () => ({
-    createSupabaseServerClient: async () => ({ from }),
-  }));
-  return { select, eq, update, from };
+function mockSession() {
+  const session = {
+    id: "11111111-1111-1111-1111-111111111111",
+    email: "gestor@empresa.com",
+    full_name: "Gestor",
+    role: "gestor" as const,
+    is_active: true,
+    must_change_password: false,
+    department_id: null,
+    manager_id: null,
+  };
+  vi.doMock("@/lib/auth/session", () => ({ getSession: async () => session }));
+  vi.doMock("@/lib/utils/client-ip", () => ({ getClientIp: async () => null }));
+  return session;
+}
+
+function mockWithRequestContext(rowCount: number) {
+  const withRequestContext = vi.fn().mockResolvedValue({ rowCount });
+  vi.doMock("@/lib/db/context", () => ({ withRequestContext }));
+  return withRequestContext;
 }
 
 function mockActionRedirect() {
@@ -63,14 +73,15 @@ async function runIgnoringRedirect(fn: () => Promise<unknown>) {
   }
 }
 
-describe("decideAccessRequestAction — UPDATE bloqueado pelo RLS não é reportado como sucesso", () => {
+describe("decideAccessRequestAction — UPDATE sem linha afetada não é reportado como sucesso", () => {
   beforeEach(() => {
     vi.resetModules();
   });
 
   it("gestor sem permissão sobre a solicitação: 0 linhas afetadas gera erro, não sucesso", async () => {
     mockTrustedOrigin();
-    const { from } = mockSupabaseUpdate({ data: [], error: null });
+    mockSession();
+    const withRequestContext = mockWithRequestContext(0);
     const { redirectWithSuccess, redirectWithError } = mockActionRedirect();
 
     const { decideAccessRequestAction } = await import(
@@ -83,14 +94,15 @@ describe("decideAccessRequestAction — UPDATE bloqueado pelo RLS não é report
 
     await runIgnoringRedirect(() => decideAccessRequestAction(formData));
 
-    expect(from).toHaveBeenCalledWith("access_requests");
+    expect(withRequestContext).toHaveBeenCalled();
     expect(redirectWithError).toHaveBeenCalled();
     expect(redirectWithSuccess).not.toHaveBeenCalled();
   });
 
   it("aprovador com permissão: 1 linha afetada continua gerando sucesso", async () => {
     mockTrustedOrigin();
-    mockSupabaseUpdate({ data: [{ id: "123e4567-e89b-12d3-a456-426614174000" }], error: null });
+    mockSession();
+    mockWithRequestContext(1);
     const { redirectWithSuccess, redirectWithError } = mockActionRedirect();
 
     const { decideAccessRequestAction } = await import(
@@ -108,14 +120,15 @@ describe("decideAccessRequestAction — UPDATE bloqueado pelo RLS não é report
   });
 });
 
-describe("cancelAccessRequestAction — UPDATE bloqueado pelo RLS não é reportado como sucesso", () => {
+describe("cancelAccessRequestAction — UPDATE sem linha afetada não é reportado como sucesso", () => {
   beforeEach(() => {
     vi.resetModules();
   });
 
   it("cancelamento de solicitação de outro usuário: 0 linhas afetadas gera erro, não sucesso", async () => {
     mockTrustedOrigin();
-    mockSupabaseUpdate({ data: [], error: null });
+    mockSession();
+    mockWithRequestContext(0);
     const { redirectWithSuccess, redirectWithError } = mockActionRedirect();
 
     const { cancelAccessRequestAction } = await import(
@@ -133,7 +146,8 @@ describe("cancelAccessRequestAction — UPDATE bloqueado pelo RLS não é report
 
   it("cancelamento da própria solicitação pendente: 1 linha afetada continua gerando sucesso", async () => {
     mockTrustedOrigin();
-    mockSupabaseUpdate({ data: [{ id: "123e4567-e89b-12d3-a456-426614174000" }], error: null });
+    mockSession();
+    mockWithRequestContext(1);
     const { redirectWithSuccess, redirectWithError } = mockActionRedirect();
 
     const { cancelAccessRequestAction } = await import(

@@ -1,20 +1,28 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
+import { pool } from "@/lib/db/client";
+import { verifyPassword } from "@/lib/auth/password";
+import { createSession } from "@/lib/auth/session";
 import { loginSchema } from "@/lib/validations/auth";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
-
-// Arquitetura alinhada com as diretrizes do ADR Master.
+import { getClientIp } from "@/lib/utils/client-ip";
 
 export type LoginActionState = {
   error: string | null;
 };
 
+type LoginProfileRow = {
+  id: string;
+  password_hash: string;
+  is_active: boolean;
+  must_change_password: boolean;
+};
+
 // Rate limiting de força bruta é aplicado na borda (Nginx limit_req +
-// fail2ban, ver ARQUITETURA_TECNICA.md seção 6.2/6.3) e pelo próprio GoTrue
-// (Supabase Auth) — este Server Action nunca deve ser a única linha de
-// defesa contra tentativas repetidas.
+// fail2ban) — este Server Action nunca deve ser a única linha de defesa
+// contra tentativas repetidas.
 export async function loginAction(
   _prevState: LoginActionState,
   formData: FormData
@@ -34,39 +42,35 @@ export async function loginAction(
     return { error: "E-mail ou senha inválidos." };
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { data: signInData, error } = await supabase.auth.signInWithPassword(parsed.data);
+  const { rows } = await pool.query<LoginProfileRow>(
+    "select id, password_hash, is_active, must_change_password from profiles where email = $1",
+    [parsed.data.email]
+  );
+  const profile = rows[0];
 
-  if (error) {
-    // Mensagem genérica: nunca expor se foi o e-mail ou a senha que falhou
-    // (evita enumeração de contas) nem detalhes internos do Supabase Auth.
-    console.error("[auth] login failed", { message: error.message });
+  // Mensagem genérica: nunca expor se foi o e-mail ou a senha que falhou
+  // (evita enumeração de contas).
+  if (!profile || !(await verifyPassword(parsed.data.password, profile.password_hash))) {
+    console.error("[auth] login failed", { email: parsed.data.email });
     return { error: "E-mail ou senha inválidos." };
   }
+
+  if (!profile.is_active) {
+    return { error: "Sua conta foi desativada. Fale com o TI." };
+  }
+
+  const [clientIp, headerList] = await Promise.all([getClientIp(), headers()]);
+  const userAgent = headerList.get("user-agent");
+
+  await createSession(profile.id, { ip: clientIp, userAgent });
 
   // Redireciona direto para /primeiro-acesso quando aplicável, em vez de
   // depender só do middleware pegar isso na requisição seguinte: um
   // redirect() de Server Action que o middleware intercepta e redireciona de
   // novo confunde o roteador client-side do Next.js (a barra de endereço fica
   // com o destino original da action — /dashboard — mesmo o conteúdo servido
-  // sendo o da segunda página). O middleware continua sendo a autoridade real
-  // (bloqueia navegação direta/back-forward para outras rotas), isto aqui é
-  // só para o primeiro redirect pós-login já sair certo.
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("is_active, must_change_password")
-    .eq("id", signInData.user.id)
-    .single();
-
-  // A credencial é válida, mas a conta foi desativada — o middleware também
-  // bloquearia isso na navegação seguinte, mas checar aqui evita mandar o
-  // usuário pro /dashboard e só descobrir a desativação num segundo passo.
-  if (profile && !profile.is_active) {
-    await supabase.auth.signOut();
-    return { error: "Sua conta foi desativada. Fale com o TI." };
-  }
-
-  if (profile?.must_change_password) {
+  // sendo o da segunda página).
+  if (profile.must_change_password) {
     redirect("/primeiro-acesso");
   }
 

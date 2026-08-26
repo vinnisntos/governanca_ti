@@ -1,7 +1,7 @@
 import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Button } from "@/components/ui/button";
@@ -15,19 +15,22 @@ export default async function HelpCenterPage({
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
+  const session = await getSession();
 
-  if (!user) {
+  if (!session) {
     redirect("/login");
   }
 
-  const { data: tickets } = await supabase
-    .from("support_tickets")
-    .select("id, category, subject, status, ticket_number, updated_at")
-    .eq("requester_id", user.id)
-    .order("updated_at", { ascending: false })
-    .returns<TicketListRow[]>();
+  // Sem RLS: WHERE requester_id = $1 substitui a antiga policy
+  // support_tickets_select (que restringia ao próprio solicitante, exceto
+  // admin_ti — aqui nem é admin_ti, então sempre é o próprio).
+  const { rows: tickets } = await pool.query<TicketListRow>(
+    `select id, category, subject, status, ticket_number, updated_at
+     from support_tickets
+     where requester_id = $1
+     order by updated_at desc`,
+    [session.id]
+  );
 
   const openTicketModal = (
     <Modal
@@ -54,7 +57,7 @@ export default async function HelpCenterPage({
       />
 
       <TicketList
-        tickets={tickets ?? []}
+        tickets={tickets}
         emptyTitle="Você ainda não abriu nenhum chamado"
         emptyDescription="Precisa de ajuda com acessos, hardware, telefonia ou login? Abra um chamado e o TI responde por aqui."
         emptyAction={openTicketModal}

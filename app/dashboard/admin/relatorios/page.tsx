@@ -1,7 +1,5 @@
-import { redirect } from "next/navigation";
 import { ClipboardX, Download, Gauge, KeySquare, Phone } from "lucide-react";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
 import { ACCESS_REQUEST_STATUSES, ACCESS_STATUS_LABELS } from "./labels";
 import type { AuditLogRow, DeniedRequestRow, PendingCheckinAssetRow } from "./types";
@@ -16,85 +14,95 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-// Módulo 5: Relatórios e Auditoria (Dashboard Executivo).
-// Autorização real é a policy audit_logs_select_admin (RLS) — só admin_ti
-// consegue de fato ler audit_logs; o middleware bloqueando /dashboard/admin
-// para quem não é admin_ti é só o atalho de UX.
+// Módulo 5: Relatórios e Auditoria (Dashboard Executivo). Sem RLS no banco:
+// app/dashboard/admin/layout.tsx (requireRole(["admin_ti"])) é a autoridade
+// real de acesso — esta página em si não filtra nenhuma linha, lê tudo.
 
 function currency(value: number) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+type StatusCountRow = { status: string; count: number };
+type MonthlyCostRow = { monthly_cost: number | string | null };
+type CountRow = { count: number };
+type CheckinAssetIdRow = { asset_id: string };
+
 export default async function ExecutiveDashboardPage() {
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
   const referenceMonth = currentReferenceMonth();
 
   const [
-    statusCounts,
-    { data: deniedRequests },
-    { data: activeLines },
-    { data: activeLicenses },
-    { count: assignedAssetsCount },
-    { count: checkinsThisMonthCount },
-    { data: assignedAssets },
-    { data: checkinsThisMonth },
-    { data: auditLogs },
+    statusCountRows,
+    deniedRequestsResult,
+    activeLinesResult,
+    activeLicensesResult,
+    assignedAssetsCountResult,
+    checkinsThisMonthCountResult,
+    assignedAssetsResult,
+    checkinsThisMonthResult,
+    auditLogsResult,
   ] = await Promise.all([
-    Promise.all(
-      ACCESS_REQUEST_STATUSES.map((status) =>
-        supabase
-          .from("access_requests")
-          .select("id", { count: "exact", head: true })
-          .eq("status", status)
-          .then(({ count }) => ({ status, count: count ?? 0 }))
-      )
+    pool.query<StatusCountRow>(
+      `select status::text, count(*)::int as count
+       from access_requests
+       where status::text = any($1::text[])
+       group by status`,
+      [ACCESS_REQUEST_STATUSES as unknown as string[]]
     ),
-    supabase
-      .from("access_requests")
-      .select(
-        "id, review_notes, decision_at, access_catalog(name), requested_system_name, requester:profiles!access_requests_requester_id_fkey(full_name)"
-      )
-      .eq("status", "negado")
-      .order("decision_at", { ascending: false })
-      .limit(10)
-      .returns<DeniedRequestRow[]>(),
-    supabase.from("mobile_lines").select("monthly_cost").eq("status", "ativa"),
-    supabase.from("access_catalog").select("monthly_cost").eq("is_active", true),
-    supabase.from("hardware_assets").select("id", { count: "exact", head: true }).not("assigned_to", "is", null),
-    supabase
-      .from("hardware_checkins")
-      .select("id", { count: "exact", head: true })
-      .eq("reference_month", referenceMonth),
-    supabase
-      .from("hardware_assets")
-      .select("id, asset_tag, profiles(full_name)")
-      .not("assigned_to", "is", null)
-      .returns<PendingCheckinAssetRow[]>(),
-    supabase.from("hardware_checkins").select("asset_id").eq("reference_month", referenceMonth),
-    supabase
-      .from("audit_logs")
-      .select("id, table_name, action, created_at, profiles(full_name)")
-      .order("created_at", { ascending: false })
-      .limit(50)
-      .returns<AuditLogRow[]>(),
+    pool.query<DeniedRequestRow>(
+      `select ar.id, ar.review_notes, ar.decision_at,
+              case when ac.name is not null then jsonb_build_object('name', ac.name) end as access_catalog,
+              ar.requested_system_name,
+              case when requester.full_name is not null then jsonb_build_object('full_name', requester.full_name) end as requester
+       from access_requests ar
+       left join access_catalog ac on ac.id = ar.system_id
+       left join profiles requester on requester.id = ar.requester_id
+       where ar.status = 'negado'
+       order by ar.decision_at desc
+       limit 10`
+    ),
+    pool.query<MonthlyCostRow>("select monthly_cost from mobile_lines where status = 'ativa'"),
+    pool.query<MonthlyCostRow>("select monthly_cost from access_catalog where is_active = true"),
+    pool.query<CountRow>("select count(*)::int as count from hardware_assets where assigned_to is not null"),
+    pool.query<CountRow>("select count(*)::int as count from hardware_checkins where reference_month = $1", [
+      referenceMonth,
+    ]),
+    pool.query<PendingCheckinAssetRow>(
+      `select ha.id, ha.asset_tag,
+              case when p.full_name is not null then jsonb_build_object('full_name', p.full_name) end as profiles
+       from hardware_assets ha
+       left join profiles p on p.id = ha.assigned_to
+       where ha.assigned_to is not null`
+    ),
+    pool.query<CheckinAssetIdRow>("select asset_id from hardware_checkins where reference_month = $1", [
+      referenceMonth,
+    ]),
+    pool.query<AuditLogRow>(
+      `select al.id, al.table_name, al.action::text as action, al.created_at,
+              case when p.full_name is not null then jsonb_build_object('full_name', p.full_name) end as profiles
+       from audit_logs al
+       left join profiles p on p.id = al.changed_by
+       order by al.created_at desc
+       limit 50`
+    ),
   ]);
 
-  const telefoniaCost = (activeLines ?? []).reduce((sum, l) => sum + Number(l.monthly_cost ?? 0), 0);
-  const licensesCost = (activeLicenses ?? []).reduce((sum, l) => sum + Number(l.monthly_cost ?? 0), 0);
+  const countByStatus = new Map(statusCountRows.rows.map((r) => [r.status, r.count]));
+  const statusCounts = ACCESS_REQUEST_STATUSES.map((status) => ({
+    status,
+    count: countByStatus.get(status) ?? 0,
+  }));
 
-  const checkedInAssetIds = new Set((checkinsThisMonth ?? []).map((c) => c.asset_id));
-  const pendingCheckinAssets = (assignedAssets ?? []).filter((a) => !checkedInAssetIds.has(a.id));
+  const deniedRequests = deniedRequestsResult.rows;
+  const telefoniaCost = activeLinesResult.rows.reduce((sum, l) => sum + Number(l.monthly_cost ?? 0), 0);
+  const licensesCost = activeLicensesResult.rows.reduce((sum, l) => sum + Number(l.monthly_cost ?? 0), 0);
+  const assignedAssetsCount = assignedAssetsCountResult.rows[0]?.count ?? 0;
+  const checkinsThisMonthCount = checkinsThisMonthCountResult.rows[0]?.count ?? 0;
+  const auditLogs = auditLogsResult.rows;
+
+  const checkedInAssetIds = new Set(checkinsThisMonthResult.rows.map((c) => c.asset_id));
+  const pendingCheckinAssets = assignedAssetsResult.rows.filter((a) => !checkedInAssetIds.has(a.id));
   const adherenceRate =
-    assignedAssetsCount && assignedAssetsCount > 0
-      ? Math.round(((checkinsThisMonthCount ?? 0) / assignedAssetsCount) * 100)
-      : null;
+    assignedAssetsCount > 0 ? Math.round((checkinsThisMonthCount / assignedAssetsCount) * 100) : null;
 
   return (
     <>
@@ -144,7 +152,7 @@ export default async function ExecutiveDashboardPage() {
       </Section>
 
       <Section title="Recusas recentes (com motivo)" className="mb-8">
-        {!deniedRequests || deniedRequests.length === 0 ? (
+        {deniedRequests.length === 0 ? (
           <EmptyState icon={ClipboardX} title="Nenhuma solicitação recusada até o momento" />
         ) : (
           <ul className="space-y-2">
@@ -185,7 +193,7 @@ export default async function ExecutiveDashboardPage() {
             <>
               <p className="text-2xl font-semibold text-slate-900">{adherenceRate}%</p>
               <p className="text-xs text-slate-600">
-                {checkinsThisMonthCount ?? 0} de {assignedAssetsCount} equipamentos atribuídos já fizeram o
+                {checkinsThisMonthCount} de {assignedAssetsCount} equipamentos atribuídos já fizeram o
                 check-in deste mês.
               </p>
             </>
@@ -209,7 +217,7 @@ export default async function ExecutiveDashboardPage() {
       </Section>
 
       <Section title="Trilha de auditoria (últimas 50 ações)">
-        <AuditLogList logs={auditLogs ?? []} />
+        <AuditLogList logs={auditLogs} />
       </Section>
     </>
   );

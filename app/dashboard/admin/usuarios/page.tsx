@@ -1,7 +1,6 @@
 import { Plus } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import { createUserAction } from "./actions";
 import { UserList } from "./user-list";
 import { TempPasswordAlert } from "./temp-password-alert";
@@ -31,43 +30,56 @@ export type UserRow = {
   manager_full_name: string | null;
 };
 
+type UserQueryRow = {
+  id: string;
+  full_name: string;
+  email: string;
+  role: UserRole;
+  department_id: string | null;
+  manager_id: string | null;
+  is_active: boolean;
+  must_change_password: boolean;
+  department_name: string | null;
+};
+
+type DepartmentRow = { id: string; name: string };
+
 export default async function UsersAdminPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
+  // app/dashboard/admin/layout.tsx já garante admin_ti — aqui não há mais
+  // RLS/policy alguma restringindo linhas: admin vê todos os perfis.
+  const session = await getSession();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  // O middleware já bloqueia quem não é admin_ti de chegar nesta página; a
-  // autoridade real continua sendo a policy profiles_update.
-  //
-  // Não usamos o embed automático do PostgREST (profiles!manager_id(...))
-  // aqui: como manager_id referencia a própria tabela profiles, o PostgREST
-  // não consegue inferir a direção da relação e resolve como "quem esta
-  // pessoa gerencia" em vez de "quem é o gestor desta pessoa" — o nome do
-  // gestor sai sempre vazio. Resolvemos manualmente com um mapa em memória
-  // (a tabela de usuários é pequena; não justifica outra query por linha).
-  const [{ data: rawUsers }, { data: departments }, tempPassword] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select(
-        "id, full_name, email, role, department_id, manager_id, is_active, must_change_password, departments(name)"
-      )
-      .order("full_name")
-      .returns<Omit<UserRow, "manager_full_name">[]>(),
-    supabase.from("departments").select("id, name").order("name"),
+  // manager_id referencia a própria tabela profiles: resolvemos o nome do
+  // gestor com um mapa em memória (tabela pequena; não justifica subquery
+  // por linha) em vez de um self-join que exigiria alias duplicado.
+  const [{ rows: rawUsers }, { rows: departments }, tempPassword] = await Promise.all([
+    pool.query<UserQueryRow>(
+      `select p.id, p.full_name, p.email, p.role, p.department_id, p.manager_id,
+              p.is_active, p.must_change_password, d.name as department_name
+       from profiles p
+       left join departments d on d.id = p.department_id
+       order by p.full_name`
+    ),
+    pool.query<DepartmentRow>("select id, name from departments order by name"),
     readTempPasswordFlash(),
   ]);
 
-  const nameById = new Map((rawUsers ?? []).map((u) => [u.id, u.full_name]));
-  const users: UserRow[] = (rawUsers ?? []).map((u) => ({
-    ...u,
+  const nameById = new Map(rawUsers.map((u) => [u.id, u.full_name]));
+  const users: UserRow[] = rawUsers.map((u) => ({
+    id: u.id,
+    full_name: u.full_name,
+    email: u.email,
+    role: u.role,
+    department_id: u.department_id,
+    manager_id: u.manager_id,
+    is_active: u.is_active,
+    must_change_password: u.must_change_password,
+    departments: u.department_name ? { name: u.department_name } : null,
     manager_full_name: u.manager_id ? (nameById.get(u.manager_id) ?? null) : null,
   }));
 
@@ -115,7 +127,7 @@ export default async function UsersAdminPage({
               <Field label="Departamento" htmlFor="department_id" hint="Opcional">
                 <Select id="department_id" name="department_id" defaultValue="">
                   <option value="">Nenhum</option>
-                  {(departments ?? []).map((department) => (
+                  {departments.map((department) => (
                     <option key={department.id} value={department.id}>
                       {department.name}
                     </option>
@@ -151,12 +163,7 @@ export default async function UsersAdminPage({
       {tempPassword ? <TempPasswordAlert email={tempPassword.email} password={tempPassword.password} /> : null}
 
       <Section title="Usuários cadastrados">
-        <UserList
-          users={users ?? []}
-          departments={departments ?? []}
-          managers={managers}
-          currentUserId={user.id}
-        />
+        <UserList users={users} departments={departments} managers={managers} currentUserId={session!.id} />
       </Section>
     </>
   );

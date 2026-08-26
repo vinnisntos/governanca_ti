@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { redirect } from "next/navigation";
-import { getAuthUser, getCurrentProfile } from "@/lib/supabase/session";
+import { getAuthUser, getCurrentProfile } from "@/lib/auth/session";
 import { getNavItems } from "@/components/nav/nav-items";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -21,9 +21,6 @@ export default async function DashboardPage({
     redirect("/login");
   }
 
-  // A leitura abaixo só retorna o próprio perfil (ou mais, se admin/gestor/RH)
-  // por força da policy `profiles_select` no banco — não por confiança nesta
-  // página.
   const profile = await getCurrentProfile();
 
   const shortcuts = getNavItems(profile?.role ?? null).filter((item) => item.href !== "/dashboard");

@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/utils/require-role";
+import { requireRole } from "@/lib/auth/require-role";
 import { fetchDatasets, isDatasetKey } from "@/lib/reports/datasets";
 import { buildXlsxReport } from "@/lib/reports/build-xlsx";
 import { buildPdfReport } from "@/lib/reports/build-pdf";
@@ -9,13 +9,14 @@ export const runtime = "nodejs";
 
 // Entrega via Route Handler (GET), não Server Action: Server Actions do
 // Next.js não são feitas para devolver um arquivo binário direto ao browser.
-// Autorização: requireRole é defesa em profundidade — middleware.ts já
-// bloqueia /dashboard/admin/* para quem não é admin_ti por prefixo de rota.
-// Não usamos assertTrustedOrigin() aqui: esse guard é reservado a Server
-// Actions que alteram estado; esta rota é GET read-only e os cookies de
-// sessão já são SameSite=Strict.
+// Autorização: requireRole é a autoridade real aqui — Route Handlers não
+// passam por app/dashboard/admin/layout.tsx (esse gate só cobre páginas),
+// e o middleware (runtime Edge, sem acesso ao banco) só sabe se existe um
+// cookie de sessão, não o papel do usuário. Não usamos assertTrustedOrigin()
+// aqui: esse guard é reservado a Server Actions que alteram estado; esta
+// rota é GET read-only e os cookies de sessão já são SameSite=Strict.
 export async function GET(request: Request) {
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized } = await requireRole(["admin_ti"]);
   if (!authorized) {
     return new Response("Não autorizado", { status: 403 });
   }
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     return new Response("Selecione ao menos um dado para exportar.", { status: 400 });
   }
 
-  const datasets = await fetchDatasets(supabase, requestedKeys);
+  const datasets = await fetchDatasets(requestedKeys);
   const buffer = format === "xlsx" ? await buildXlsxReport(datasets) : await buildPdfReport(datasets);
 
   const contentType =

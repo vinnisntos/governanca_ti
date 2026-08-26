@@ -2,17 +2,21 @@
 
 import { z } from "zod";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
-import { requireRole } from "@/lib/utils/require-role";
+import { requireRole } from "@/lib/auth/require-role";
 import { createUserSchema, updateUserSchema } from "@/lib/validations/users";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { withRequestContext } from "@/lib/db/context";
+import { hashPassword } from "@/lib/auth/password";
 import { generateTempPassword } from "@/lib/utils/generate-temp-password";
 import { setTempPasswordFlash } from "@/lib/utils/temp-password-flash";
+import { getClientIp } from "@/lib/utils/client-ip";
+import { destroyAllSessionsForUser } from "@/lib/auth/session";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-// Autorização real é a policy profiles_update + trigger fn_protect_profile_fields
-// (RLS); requireRole() é defesa em profundidade para dar uma mensagem clara em
-// vez de depender só do efeito colateral silencioso do RLS.
+// Sem RLS no banco: requireRole(["admin_ti"]) + o layout em
+// app/dashboard/admin/layout.tsx são a autoridade real de acesso a esta
+// tela. fn_protect_profile_fields (db/migrations/0001_init.sql) segue
+// bloqueando qualquer UPDATE de role/department_id/manager_id/is_active
+// vinda de fora deste caminho, como defesa em profundidade.
 
 const PATH = "/dashboard/admin/usuarios";
 
@@ -25,16 +29,15 @@ export async function updateUserAction(formData: FormData) {
     redirectWithError(PATH, "Usuário inválido.");
   }
 
-  const { authorized, supabase, user } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
 
   // Impede que o admin altere o próprio papel/situação por esta tela e cause
-  // um auto-rebaixamento/desativação acidental (a policy de RLS já permite
-  // um admin editar o próprio registro, então esta é uma defesa de UX, não
-  // de segurança).
-  if (user!.id === id) {
+  // um auto-rebaixamento/desativação acidental (é uma defesa de UX, não de
+  // segurança — nada no backend impede um admin de editar o próprio registro).
+  if (session!.id === id) {
     redirectWithError(PATH, "Você não pode editar o próprio usuário por aqui.");
   }
 
@@ -56,37 +59,31 @@ export async function updateUserAction(formData: FormData) {
     redirectWithError(PATH, "Um usuário não pode ser gestor de si mesmo.");
   }
 
-  const { data: updated, error } = await supabase
-    .from("profiles")
-    .update({
-      role: parsed.data.role,
-      department_id: parsed.data.department_id ?? null,
-      manager_id: parsed.data.manager_id ?? null,
-      is_active: parsed.data.is_active,
-    })
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query(
+      `update profiles
+       set role = $2, department_id = $3, manager_id = $4, is_active = $5
+       where id = $1
+       returning id`,
+      [id, parsed.data.role, parsed.data.department_id ?? null, parsed.data.manager_id ?? null, parsed.data.is_active]
+    )
+  ).catch((error: unknown) => {
+    console.error("[users] update failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
 
-  if (error) {
-    console.error("[users] update failed", { message: error.message });
-    redirectWithError(PATH, "Não foi possível salvar as alterações.");
-  }
-
-  if (!updated || updated.length === 0) {
-    redirectWithError(PATH, "Usuário não encontrado ou você não tem permissão para alterá-lo.");
+  if (!rowCount) {
+    redirectWithError(PATH, "Usuário não encontrado ou não foi possível salvar as alterações.");
   }
 
   redirectWithSuccess(PATH, "Usuário atualizado.");
 }
 
-// auth.admin.createUser/updateUserById exigem a service role key (bypassa
-// RLS) — não existe outra forma de provisionar login no Supabase Auth a
-// partir do backend. requireRole(["admin_ti"]) acontece ANTES de qualquer
-// chamada à service role, então só admin_ti chega a essa parte da função.
 export async function createUserAction(formData: FormData) {
   await assertTrustedOrigin();
 
-  const { authorized } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
@@ -106,44 +103,32 @@ export async function createUserAction(formData: FormData) {
     redirectWithError(PATH, parsed.error.issues[0]?.message ?? "Dados inválidos.");
   }
 
-  const serviceRole = createSupabaseServiceRoleClient();
   const tempPassword = generateTempPassword();
+  const passwordHash = await hashPassword(tempPassword);
+  const clientIp = await getClientIp();
 
-  const { data: created, error: createError } = await serviceRole.auth.admin.createUser({
-    email: parsed.data.email,
-    password: tempPassword,
-    email_confirm: true,
-    user_metadata: { full_name: parsed.data.full_name },
-  });
-
-  if (createError || !created.user) {
-    console.error("[users] create auth user failed", { message: createError?.message });
-    const message = createError?.message.includes("already been registered")
-      ? "Já existe um usuário com este e-mail."
-      : "Não foi possível criar o usuário.";
-    redirectWithError(PATH, message);
-  }
-
-  // handle_new_user() (0001_init.sql) já criou o profile com
-  // role='colaborador' assim que auth.admin.createUser inseriu em
-  // auth.users — aqui sobrescrevemos com o que o admin escolheu no
-  // formulário e marcamos a senha como descartável.
-  const { error: updateError } = await serviceRole
-    .from("profiles")
-    .update({
-      role: parsed.data.role,
-      department_id: parsed.data.department_id ?? null,
-      manager_id: parsed.data.manager_id ?? null,
-      must_change_password: true,
-    })
-    .eq("id", created.user.id);
-
-  if (updateError) {
-    console.error("[users] set role after create failed", { message: updateError.message });
-    redirectWithError(
-      PATH,
-      "Usuário criado, mas não foi possível definir papel/gestor. Edite manualmente."
+  try {
+    await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query(
+        `insert into profiles
+           (full_name, email, password_hash, role, department_id, manager_id, must_change_password)
+         values ($1, $2, $3, $4, $5, $6, true)`,
+        [
+          parsed.data.full_name,
+          parsed.data.email,
+          passwordHash,
+          parsed.data.role,
+          parsed.data.department_id ?? null,
+          parsed.data.manager_id ?? null,
+        ]
+      )
     );
+  } catch (error) {
+    const pgError = error as { code?: string; message?: string };
+    console.error("[users] create failed", { message: pgError.message });
+    const message =
+      pgError.code === "23505" ? "Já existe um usuário com este e-mail." : "Não foi possível criar o usuário.";
+    redirectWithError(PATH, message);
   }
 
   await setTempPasswordFlash({ email: parsed.data.email, password: tempPassword });
@@ -159,46 +144,41 @@ export async function resetUserPasswordAction(formData: FormData) {
     redirectWithError(PATH, "Usuário inválido.");
   }
 
-  const { authorized, supabase, user } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
 
-  if (user!.id === id) {
+  if (session!.id === id) {
     redirectWithError(PATH, "Você não pode redefinir a própria senha por aqui.");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("email")
-    .eq("id", id as string)
-    .single();
+  const tempPassword = generateTempPassword();
+  const passwordHash = await hashPassword(tempPassword);
+  const clientIp = await getClientIp();
 
-  if (!profile) {
+  const { rows } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query<{ email: string }>(
+      `update profiles
+       set password_hash = $2, must_change_password = true
+       where id = $1
+       returning email`,
+      [id, passwordHash]
+    )
+  ).catch((error: unknown) => {
+    console.error("[users] reset password failed", { message: (error as Error).message });
+    return { rows: [] as { email: string }[] };
+  });
+
+  const email = rows[0]?.email;
+  if (!email) {
     redirectWithError(PATH, "Usuário não encontrado.");
   }
 
-  const serviceRole = createSupabaseServiceRoleClient();
-  const tempPassword = generateTempPassword();
+  // Derruba qualquer sessão ativa do usuário — equivalente ao efeito
+  // implícito de trocar a senha no Supabase Auth de antes.
+  await destroyAllSessionsForUser(id as string);
 
-  const { error: authError } = await serviceRole.auth.admin.updateUserById(id as string, {
-    password: tempPassword,
-  });
-
-  if (authError) {
-    console.error("[users] reset password failed", { message: authError.message });
-    redirectWithError(PATH, "Não foi possível redefinir a senha.");
-  }
-
-  const { error: flagError } = await serviceRole
-    .from("profiles")
-    .update({ must_change_password: true })
-    .eq("id", id as string);
-
-  if (flagError) {
-    console.error("[users] set must_change_password after reset failed", { message: flagError.message });
-  }
-
-  await setTempPasswordFlash({ email: profile.email, password: tempPassword });
+  await setTempPasswordFlash({ email: email!, password: tempPassword });
   redirectWithSuccess(PATH, "Senha redefinida.");
 }

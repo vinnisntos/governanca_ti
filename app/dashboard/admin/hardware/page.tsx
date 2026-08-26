@@ -1,7 +1,5 @@
 import { Plus, Wrench } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
 import { createHardwareAssetAction } from "./actions";
 import { CATEGORY_LABELS, STATUS_LABELS } from "./labels";
 import type { AssetRow, ContractRow } from "./types";
@@ -16,52 +14,64 @@ import { Button, LinkButton } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Modal } from "@/components/ui/modal";
 
+type AssetQueryRow = {
+  id: string;
+  asset_tag: string;
+  category: string;
+  model: string;
+  serial_number: string;
+  status: string;
+  assigned_to: string | null;
+  profile_full_name: string | null;
+  profile_email: string | null;
+};
+
+type ProfileOption = { id: string; full_name: string; email: string };
+
 export default async function HardwareAdminPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const [{ data: assets }, { data: profiles }, { data: contracts }] = await Promise.all([
-    supabase
-      .from("hardware_assets")
-      .select("id, asset_tag, category, model, serial_number, status, assigned_to, profiles(full_name, email)")
-      .order("asset_tag")
-      .returns<AssetRow[]>(),
-    supabase
-      .from("profiles")
-      .select("id, full_name, email")
-      .eq("is_active", true)
-      .order("full_name"),
-    supabase
-      .from("hardware_contracts")
-      .select("id, asset_id, signed_at, storage_path")
-      .order("created_at", { ascending: false })
-      .returns<ContractRow[]>(),
+  const [{ rows: rawAssets }, { rows: profiles }, { rows: contracts }] = await Promise.all([
+    pool.query<AssetQueryRow>(
+      `select ha.id, ha.asset_tag, ha.category, ha.model, ha.serial_number, ha.status, ha.assigned_to,
+              p.full_name as profile_full_name, p.email as profile_email
+       from hardware_assets ha
+       left join profiles p on p.id = ha.assigned_to
+       order by ha.asset_tag`
+    ),
+    pool.query<ProfileOption>(
+      "select id, full_name, email from profiles where is_active = true order by full_name"
+    ),
+    pool.query<ContractRow>(
+      "select id, asset_id, signed_at, storage_path from hardware_contracts order by created_at desc"
+    ),
   ]);
 
-  // Contrato mais recente por ativo, com link assinado de curta duração
-  // (o bucket é privado — não existe URL pública para um contrato).
+  const assets: AssetRow[] = rawAssets.map((a) => ({
+    id: a.id,
+    asset_tag: a.asset_tag,
+    category: a.category as AssetRow["category"],
+    model: a.model,
+    serial_number: a.serial_number,
+    status: a.status as AssetRow["status"],
+    assigned_to: a.assigned_to,
+    profiles: a.profile_full_name ? { full_name: a.profile_full_name, email: a.profile_email! } : null,
+  }));
+
+  // Contrato mais recente por ativo. O link de download passa por uma
+  // Route Handler autenticada (app/dashboard/hardware/contratos/[contractId])
+  // que confere posse/papel a cada requisição — não existe mais URL
+  // assinada de curta duração porque não existe mais bucket privado do
+  // Supabase Storage.
   const latestContractByAsset = new Map<string, ContractRow>();
-  for (const contract of contracts ?? []) {
+  for (const contract of contracts) {
     if (!latestContractByAsset.has(contract.asset_id)) {
       latestContractByAsset.set(contract.asset_id, contract);
     }
-  }
-
-  const signedUrlByContractId = new Map<string, string>();
-  for (const contract of latestContractByAsset.values()) {
-    const { data } = await supabase.storage
-      .from("hardware-contracts")
-      .createSignedUrl(contract.storage_path, 60 * 10);
-    if (data?.signedUrl) signedUrlByContractId.set(contract.id, data.signedUrl);
   }
 
   return (
@@ -118,7 +128,7 @@ export default async function HardwareAdminPage({
                 <Field label="Responsável" htmlFor="assigned_to" hint="Opcional">
                   <Select id="assigned_to" name="assigned_to" defaultValue="">
                     <option value="">Nenhum</option>
-                    {(profiles ?? []).map((p) => (
+                    {profiles.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.full_name} ({p.email})
                       </option>
@@ -138,15 +148,15 @@ export default async function HardwareAdminPage({
 
       <Section title="Ativos cadastrados">
         <AssetList
-          assets={(assets ?? []).map((asset) => {
+          assets={assets.map((asset) => {
             const contract = latestContractByAsset.get(asset.id) ?? null;
             return {
               ...asset,
               contract,
-              contractSignedUrl: contract ? signedUrlByContractId.get(contract.id) ?? null : null,
+              contractSignedUrl: contract ? `/dashboard/hardware/contratos/${contract.id}` : null,
             };
           })}
-          profiles={profiles ?? []}
+          profiles={profiles}
         />
       </Section>
     </>

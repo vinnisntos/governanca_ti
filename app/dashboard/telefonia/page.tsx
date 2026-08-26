@@ -1,7 +1,6 @@
 import { Phone } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getAuthUser } from "@/lib/supabase/session";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,21 +33,18 @@ type MobileLineRow = {
 };
 
 export default async function TelefoniaPage() {
-  const supabase = await createSupabaseServerClient();
-  const user = await getAuthUser();
+  const session = await getSession();
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  // A policy mobile_lines_select só retorna linhas com assigned_to = próprio
-  // usuário (ou tudo, se admin) — esta página não filtra nada por conta
-  // própria, só exibe o que o banco já devolveu.
-  const { data: lines } = await supabase
-    .from("mobile_lines")
-    .select("id, phone_number, carrier, plan_name, line_type, status")
-    .eq("assigned_to", user.id)
-    .returns<MobileLineRow[]>();
+  // Sem RLS: esta página sempre mostra só as linhas do próprio usuário (é a
+  // tela "Minhas linhas", não a de administração) — o filtro é explícito
+  // aqui, igual já era antes (a query já filtrava por assigned_to mesmo com
+  // RLS ativo).
+  const { rows: lines } = await pool.query<MobileLineRow>(
+    `select id, phone_number, carrier, plan_name, line_type, status
+     from mobile_lines
+     where assigned_to = $1`,
+    [session!.id]
+  );
 
   return (
     <>
@@ -57,7 +53,7 @@ export default async function TelefoniaPage() {
         description="Linhas telefônicas corporativas vinculadas ao seu usuário."
       />
 
-      {!lines || lines.length === 0 ? (
+      {lines.length === 0 ? (
         <EmptyState
           icon={Phone}
           title="Nenhuma linha vinculada"

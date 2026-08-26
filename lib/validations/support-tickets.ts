@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // Arquitetura alinhada com as diretrizes do ADR Master.
 // Espelha os enums public.support_ticket_status/support_ticket_category
-// (supabase/migrations/0006_support_tickets.sql).
+// (db/migrations/0001_init.sql, bloco 9).
 
 export const supportTicketCategorySchema = z.enum([
   "acesso",

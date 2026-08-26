@@ -1,11 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
+import { withRequestContext } from "@/lib/db/context";
+import { hashPassword } from "@/lib/auth/password";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
 import { setPasswordSchema } from "@/lib/validations/auth";
-
-// Arquitetura alinhada com as diretrizes do ADR Master.
+import { getClientIp } from "@/lib/utils/client-ip";
 
 export type SetPasswordActionState = { error: string | null };
 
@@ -28,37 +29,25 @@ export async function setInitialPasswordAction(
     return { error: parsed.error.issues[0]?.message ?? "Dados inválidos." };
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     redirect("/login");
   }
 
-  const { error: authError } = await supabase.auth.updateUser({ password: parsed.data.password });
+  const passwordHash = await hashPassword(parsed.data.password);
+  const clientIp = await getClientIp();
 
-  if (authError) {
-    console.error("[primeiro-acesso] update password failed", { message: authError.message });
-    return { error: "Não foi possível definir a nova senha. Tente novamente." };
-  }
-
-  // must_change_password é campo protegido por fn_protect_profile_fields
-  // (supabase/migrations/0002_must_change_password.sql) — só admin_ti ou
-  // service_role podem limpá-lo. Usamos a service role aqui, restrita ao
-  // próprio usuário autenticado, e só depois de confirmar que a troca de
-  // senha no Supabase Auth teve sucesso (nunca antes).
-  const serviceRole = createSupabaseServiceRoleClient();
-  const { error: flagError } = await serviceRole
-    .from("profiles")
-    .update({ must_change_password: false })
-    .eq("id", user.id);
-
-  if (flagError) {
-    console.error("[primeiro-acesso] clear must_change_password failed", { message: flagError.message });
-    return { error: "Senha alterada, mas houve um problema ao liberar seu acesso. Contate o TI." };
-  }
+  // fn_protect_profile_fields (db/migrations/0001_init.sql) libera
+  // explicitamente esta UPDATE: o próprio usuário pode limpar
+  // must_change_password (true -> false) contanto que nenhum outro campo
+  // protegido mude na mesma escrita — não precisa mais de um cliente
+  // "service role" pra isso.
+  await withRequestContext({ userId: session.id, clientIp }, (client) =>
+    client.query(
+      "update profiles set password_hash = $2, must_change_password = false where id = $1",
+      [session.id, passwordHash]
+    )
+  );
 
   redirect("/dashboard");
 }

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // de mutação do projeto sem assertTrustedOrigin(), permitindo logout forçado
 // via CSRF. A correção adiciona a mesma checagem usada por todas as outras
 // actions. Este arquivo garante que a correção não regrida: origem não
-// confiável nunca deve chamar signOut(), e origem confiável continua
+// confiável nunca deve derrubar a sessão, e origem confiável continua
 // funcionando normalmente.
 
 function mockHeaders(entries: Record<string, string | undefined>) {
@@ -16,12 +16,10 @@ function mockHeaders(entries: Record<string, string | undefined>) {
   }));
 }
 
-function mockSignOut() {
-  const signOut = vi.fn().mockResolvedValue({ error: null });
-  vi.doMock("@/lib/supabase/server", () => ({
-    createSupabaseServerClient: async () => ({ auth: { signOut } }),
-  }));
-  return signOut;
+function mockDestroySession() {
+  const destroySession = vi.fn().mockResolvedValue(undefined);
+  vi.doMock("@/lib/auth/session", () => ({ destroySession }));
+  return destroySession;
 }
 
 function mockRedirect() {
@@ -35,28 +33,28 @@ describe("signOutAction — não age quando a requisição vem de uma origem nã
     vi.resetModules();
   });
 
-  it("não chama supabase.auth.signOut() quando Origin é de um site diferente do Host", async () => {
+  it("não chama destroySession() quando Origin é de um site diferente do Host", async () => {
     mockHeaders({ origin: "https://atacante.com", host: "portal.empresa.com" });
-    const signOut = mockSignOut();
+    const destroySession = mockDestroySession();
     vi.doMock("next/navigation", () => ({ redirect: mockRedirect() }));
 
     const { signOutAction } = await import("@/app/dashboard/actions");
 
     await expect(signOutAction()).rejects.toThrow();
-    expect(signOut).not.toHaveBeenCalled();
+    expect(destroySession).not.toHaveBeenCalled();
   });
 
-  it("continua chamando supabase.auth.signOut() quando Origin e Host coincidem", async () => {
+  it("continua chamando destroySession() quando Origin e Host coincidem", async () => {
     mockHeaders({ origin: "https://portal.empresa.com", host: "portal.empresa.com" });
-    const signOut = mockSignOut();
+    const destroySession = mockDestroySession();
     vi.doMock("next/navigation", () => ({ redirect: mockRedirect() }));
 
     const { signOutAction } = await import("@/app/dashboard/actions");
 
-    // redirect() lança de propósito (mock) após o signOut bem-sucedido, como
-    // o next/navigation real faz — o que importa aqui é que signOut() tenha
-    // sido chamado antes disso.
+    // redirect() lança de propósito (mock) após o destroySession bem-sucedido,
+    // como o next/navigation real faz — o que importa aqui é que
+    // destroySession() tenha sido chamado antes disso.
     await expect(signOutAction()).rejects.toThrow();
-    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(destroySession).toHaveBeenCalledTimes(1);
   });
 });
