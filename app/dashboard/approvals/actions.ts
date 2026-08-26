@@ -1,25 +1,18 @@
 "use server";
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
+import { withRequestContext } from "@/lib/db/context";
+import { getClientIp } from "@/lib/utils/client-ip";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
 import { decideAccessRequestSchema } from "@/lib/validations/access-requests";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-//
 // reviewed_by/decision_at NUNCA são enviados pelo client: são preenchidos
 // automaticamente pela trigger fn_validate_access_request_transition no
-// banco (supabase/migrations/0001_init.sql, bloco 3), a partir de auth.uid()
-// — impossível de forjar via payload. A própria permissão para decidir
-// (admin_ti ou gestor direto do solicitante) é reforçada pela policy
-// access_requests_update_approver.
-//
-// IMPORTANTE: sem .select() após o UPDATE, o @supabase/supabase-js usa
-// "Prefer: return=minimal" — se a policy de RLS filtrar a linha (usuário sem
-// permissão sobre esta solicitação específica), o Postgres/PostgREST afeta 0
-// linhas e devolve { error: null }, NÃO um erro. Por isso encadeamos
-// .select("id") e checamos explicitamente se algo foi de fato afetado, em
-// vez de assumir sucesso apenas porque não houve erro.
+// banco (db/migrations/0001_init.sql), a partir de public.current_user_id()
+// — impossível de forjar via payload. A permissão para decidir (admin_ti ou
+// gestor direto do solicitante) é imposta pelo WHERE abaixo, no lugar da
+// antiga policy access_requests_update_approver.
 
 const PATH = "/dashboard/approvals";
 
@@ -39,28 +32,42 @@ export async function decideAccessRequestAction(formData: FormData) {
     );
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { data: updated, error } = await supabase
-    .from("access_requests")
-    .update({
-      status: parsed.data.decision,
-      review_notes: parsed.data.review_notes ?? null,
-    })
-    .eq("id", parsed.data.request_id)
-    .select("id");
+  const session = await getSession();
+  if (!session) {
+    redirectWithError(PATH, "Você não tem permissão para esta ação.");
+  }
 
-  if (error) {
-    console.error("[approvals] decide failed", { message: error.message });
+  const isAdmin = session!.role === "admin_ti";
+  const clientIp = await getClientIp();
+
+  // rowCount === 0 cobre tanto "solicitação inexistente" quanto "não está
+  // mais decidível" e "você não é admin_ti nem o gestor direto do
+  // solicitante" — não distinguimos os casos pro cliente por segurança.
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query(
+      `update access_requests
+       set status = $2, review_notes = $3
+       where id = $1
+         and requester_id <> $4
+         and status in ('pendente', 'em_analise')
+         and ($5 or requester_id in (select id from profiles where manager_id = $4))`,
+      [
+        parsed.data.request_id,
+        parsed.data.decision,
+        parsed.data.review_notes ?? null,
+        session!.id,
+        isAdmin,
+      ]
+    )
+  ).catch((error: unknown) => {
+    console.error("[approvals] decide failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
+
+  if (!rowCount) {
     redirectWithError(
       PATH,
       "Não foi possível registrar a decisão. Verifique se você tem permissão para decidir esta solicitação."
-    );
-  }
-
-  if (!updated || updated.length === 0) {
-    redirectWithError(
-      PATH,
-      "Solicitação não encontrada ou você não tem permissão para decidir sobre ela."
     );
   }
 

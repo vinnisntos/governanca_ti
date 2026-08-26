@@ -1,5 +1,7 @@
-import { notFound, redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { LifeBuoy } from "lucide-react";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import {
   updateTicketStatusAction,
   closeOwnTicketAction,
@@ -8,6 +10,7 @@ import {
 } from "../actions";
 import { CATEGORY_LABELS, STATUS_LABELS, STATUS_TONE } from "../labels";
 import { formatTicketNumber } from "@/lib/utils/format-ticket-number";
+import { formatDateTimeBR } from "@/lib/utils/format-datetime";
 import { ReplyForm } from "./reply-form";
 import { ReopenForm } from "./reopen-form";
 import { PageHeader } from "@/components/ui/page-header";
@@ -19,9 +22,19 @@ import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmitButton } from "@/components/ui/confirm-submit-button";
 import { Alert } from "@/components/ui/alert";
+import { EmptyState } from "@/components/ui/empty-state";
 import { LinkButton } from "@/components/ui/button";
 
-type TicketRow = {
+// O botão "voltar" e o destino pós-navegação dependem de quem está olhando:
+// um admin_ti chega aqui pelo Painel de Chamados (/dashboard/admin/chamados)
+// quando o chamado não é dele; o próprio solicitante sempre chega pela
+// Central de Ajuda (/dashboard/ajuda). Chamado de outra pessoa só é visível
+// pra admin_ti (ver WHERE abaixo), então essa combinação é suficiente pra
+// distinguir a origem sem depender de query param.
+const ADMIN_BACK = { href: "/dashboard/admin/chamados", label: "Painel de Chamados" };
+const USER_BACK = { href: "/dashboard/ajuda", label: "Central de Ajuda" };
+
+type TicketQueryRow = {
   id: string;
   requester_id: string;
   category: keyof typeof CATEGORY_LABELS;
@@ -30,16 +43,17 @@ type TicketRow = {
   ticket_number: number;
   merged_into_id: string | null;
   created_at: string;
-  requester: { full_name: string; email: string } | null;
-  merged_into: { ticket_number: number } | null;
+  requester_full_name: string | null;
+  requester_email: string | null;
 };
 
-type MessageRow = {
+type MessageQueryRow = {
   id: string;
   sender_id: string;
   message: string;
   created_at: string;
-  sender: { full_name: string; role: string } | null;
+  sender_full_name: string | null;
+  sender_role: string | null;
 };
 
 export default async function TicketDetailPage({
@@ -51,45 +65,87 @@ export default async function TicketDetailPage({
 }) {
   const { ticketId } = await params;
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  const isAdmin = profile?.role === "admin_ti";
+  const isAdmin = session.role === "admin_ti";
 
-  // Se o chamado for de outro usuário e quem está olhando não for admin_ti,
-  // a policy support_tickets_select simplesmente não retorna a linha — mesmo
-  // tratamento de "não existe" usado na wiki (evita vazar a existência do
-  // chamado de outra pessoa).
-  const { data: ticket } = await supabase
-    .from("support_tickets")
-    .select(
-      "id, requester_id, category, subject, status, ticket_number, merged_into_id, created_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email), merged_into:support_tickets!support_tickets_merged_into_id_fkey(ticket_number)"
-    )
-    .eq("id", ticketId)
-    .maybeSingle<TicketRow>();
+  // Sem RLS: o WHERE abaixo substitui a antiga policy support_tickets_select
+  // — se o chamado for de outro usuário e quem está olhando não for
+  // admin_ti, a query simplesmente não retorna a linha (mesmo tratamento de
+  // "não existe" usado na wiki, pra não vazar a existência do chamado de
+  // outra pessoa).
+  const { rows: ticketRows } = await pool.query<TicketQueryRow>(
+    `select t.id, t.requester_id, t.category, t.subject, t.status, t.ticket_number,
+            t.merged_into_id, t.created_at, r.full_name as requester_full_name, r.email as requester_email
+     from support_tickets t
+     left join profiles r on r.id = t.requester_id
+     where t.id = $1 and (t.requester_id = $2 or $3)`,
+    [ticketId, session.id, isAdmin]
+  );
+  const ticketRow = ticketRows[0];
 
-  if (!ticket) {
-    notFound();
+  if (!ticketRow) {
+    // Mesmo tratamento pra chamado inexistente e chamado de outra pessoa —
+    // mas o botão de voltar ainda precisa respeitar de onde quem está vendo
+    // normalmente chegaria: admin_ti volta pro Painel de Chamados, o
+    // solicitante volta pra própria Central de Ajuda.
+    const back = isAdmin ? ADMIN_BACK : USER_BACK;
+    return (
+      <>
+        <FlashToast success={successMessage} error={errorMessage} />
+        <PageHeader title="Chamado não encontrado" back={back} />
+        <EmptyState
+          icon={LifeBuoy}
+          title="Este chamado não existe ou não está disponível"
+          description={`Ele pode ter sido removido, cancelado ou o link estar incorreto. (ID: ${ticketId})`}
+        />
+        <div className="mt-4">
+          <LinkButton href={back.href} variant="primary">
+            Voltar para {back.label}
+          </LinkButton>
+        </div>
+      </>
+    );
   }
 
-  const { data: messages } = await supabase
-    .from("support_ticket_messages")
-    .select(
-      "id, sender_id, message, created_at, sender:profiles!support_ticket_messages_sender_id_fkey(full_name, role)"
-    )
-    .eq("ticket_id", ticketId)
-    .order("created_at", { ascending: true })
-    .returns<MessageRow[]>();
+  const ticket = {
+    ...ticketRow,
+    requester: ticketRow.requester_full_name
+      ? { full_name: ticketRow.requester_full_name, email: ticketRow.requester_email ?? "" }
+      : null,
+  };
 
-  const isOwner = ticket.requester_id === user.id;
+  // Mensagens e (se houver) o número do chamado de destino da mesclagem não
+  // dependem uma da outra — buscadas em paralelo.
+  const [{ rows: messageRows }, mergedIntoRows] = await Promise.all([
+    pool.query<MessageQueryRow>(
+      `select m.id, m.sender_id, m.message, m.created_at, p.full_name as sender_full_name, p.role as sender_role
+       from support_ticket_messages m
+       left join profiles p on p.id = m.sender_id
+       where m.ticket_id = $1
+       order by m.created_at asc`,
+      [ticketId]
+    ),
+    ticket.merged_into_id
+      ? pool.query<{ ticket_number: number }>("select ticket_number from support_tickets where id = $1", [
+          ticket.merged_into_id,
+        ])
+      : Promise.resolve({ rows: [] as { ticket_number: number }[] }),
+  ]);
+  const messages = messageRows.map((m) => ({
+    ...m,
+    sender: m.sender_full_name ? { full_name: m.sender_full_name, role: m.sender_role ?? "" } : null,
+  }));
+  const mergedIntoTicketNumber = mergedIntoRows.rows[0]?.ticket_number ?? null;
+
+  const isOwner = ticket.requester_id === session.id;
+  // Chamado de outra pessoa só chega até aqui pra admin_ti: quem está
+  // olhando veio do Painel de Chamados, não da própria Central de Ajuda.
+  const back = isAdmin && !isOwner ? ADMIN_BACK : USER_BACK;
   const isMerged = ticket.merged_into_id !== null;
   const canReply = !isMerged && ticket.status !== "fechado" && ticket.status !== "cancelado" && (isOwner || isAdmin);
   const canClose = isOwner && !isMerged && ["aberto", "em_andamento", "resolvido"].includes(ticket.status);
@@ -102,7 +158,7 @@ export default async function TicketDetailPage({
 
       <PageHeader
         title={`Chamado ${formatTicketNumber(ticket.ticket_number)} — ${ticket.subject}`}
-        back={{ href: "/dashboard/ajuda", label: "Central de Ajuda" }}
+        back={back}
         description={
           isAdmin && ticket.requester
             ? `Aberto por ${ticket.requester.full_name} (${ticket.requester.email})`
@@ -124,17 +180,17 @@ export default async function TicketDetailPage({
 
       <p className="mb-4 text-xs text-slate-600">
         {CATEGORY_LABELS[ticket.category]} · aberto em{" "}
-        {new Date(ticket.created_at).toLocaleString("pt-BR")}
+        {formatDateTimeBR(ticket.created_at)}
       </p>
 
-      {isMerged && ticket.merged_into ? (
+      {isMerged && mergedIntoTicketNumber !== null ? (
         <Alert tone="info" className="mb-4">
           Este chamado foi mesclado com o chamado{" "}
           <a
             href={`/dashboard/ajuda/${ticket.merged_into_id}`}
             className="font-medium underline underline-offset-2"
           >
-            {formatTicketNumber(ticket.merged_into.ticket_number)}
+            {formatTicketNumber(mergedIntoTicketNumber)}
           </a>
           . O atendimento continua por lá.
         </Alert>
@@ -142,7 +198,7 @@ export default async function TicketDetailPage({
 
       <Section title="Conversa">
         <ul className="space-y-3">
-          {(messages ?? []).map((message) => {
+          {messages.map((message) => {
             const senderIsAdmin = message.sender?.role === "admin_ti";
             return (
               <li key={message.id}>
@@ -155,7 +211,7 @@ export default async function TicketDetailPage({
                       ) : null}
                     </p>
                     <p className="shrink-0 text-xs text-slate-600">
-                      {new Date(message.created_at).toLocaleString("pt-BR")}
+                      {formatDateTimeBR(message.created_at)}
                     </p>
                   </div>
                   <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{message.message}</p>

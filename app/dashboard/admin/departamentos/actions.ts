@@ -2,21 +2,21 @@
 
 import { z } from "zod";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
-import { requireRole } from "@/lib/utils/require-role";
+import { requireRole } from "@/lib/auth/require-role";
+import { withRequestContext } from "@/lib/db/context";
+import { getClientIp } from "@/lib/utils/client-ip";
 import { upsertDepartmentSchema } from "@/lib/validations/departments";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-// Autorização real é a policy departments_write_admin (RLS); requireRole()
-// é defesa em profundidade para dar uma mensagem clara em vez de depender só
-// do efeito colateral silencioso do RLS.
+// Autorização real: requireRole(["admin_ti"]), no lugar da antiga policy
+// departments_write_admin.
 
 const PATH = "/dashboard/admin/departamentos";
 
 export async function createDepartmentAction(formData: FormData) {
   await assertTrustedOrigin();
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
@@ -27,14 +27,17 @@ export async function createDepartmentAction(formData: FormData) {
     redirectWithError(PATH, "Informe o nome do departamento (mín. 2 caracteres).");
   }
 
-  const { error } = await supabase.from("departments").insert({ name: parsed.data.name });
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[departments] create failed", { message: error.message });
+  try {
+    await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query("insert into departments (name) values ($1)", [parsed.data.name])
+    );
+  } catch (error) {
+    const pgError = error as { code?: string; message?: string };
+    console.error("[departments] create failed", { message: pgError.message });
     const message =
-      error.code === "23505"
-        ? "Já existe um departamento com esse nome."
-        : "Não foi possível criar o departamento.";
+      pgError.code === "23505" ? "Já existe um departamento com esse nome." : "Não foi possível criar o departamento.";
     redirectWithError(PATH, message);
   }
 
@@ -50,7 +53,7 @@ export async function updateDepartmentAction(formData: FormData) {
     redirectWithError(PATH, "Departamento inválido.");
   }
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
@@ -61,22 +64,22 @@ export async function updateDepartmentAction(formData: FormData) {
     redirectWithError(PATH, "Informe o nome do departamento (mín. 2 caracteres).");
   }
 
-  const { data: updated, error } = await supabase
-    .from("departments")
-    .update({ name: parsed.data.name })
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[departments] update failed", { message: error.message });
+  let rowCount: number | null = 0;
+  try {
+    ({ rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query("update departments set name = $2 where id = $1", [id, parsed.data.name])
+    ));
+  } catch (error) {
+    const pgError = error as { code?: string; message?: string };
+    console.error("[departments] update failed", { message: pgError.message });
     const message =
-      error.code === "23505"
-        ? "Já existe um departamento com esse nome."
-        : "Não foi possível salvar as alterações.";
+      pgError.code === "23505" ? "Já existe um departamento com esse nome." : "Não foi possível salvar as alterações.";
     redirectWithError(PATH, message);
   }
 
-  if (!updated || updated.length === 0) {
+  if (!rowCount) {
     redirectWithError(PATH, "Departamento não encontrado ou você não tem permissão para alterá-lo.");
   }
 
@@ -92,31 +95,33 @@ export async function deleteDepartmentAction(formData: FormData) {
     redirectWithError(PATH, "Departamento inválido.");
   }
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
 
-  const { data: deleted, error } = await supabase
-    .from("departments")
-    .delete()
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
 
-  if (error) {
+  let rowCount: number | null = 0;
+  try {
+    ({ rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query("delete from departments where id = $1", [id])
+    ));
+  } catch (error) {
     // 23503 = violação de FK: existem usuários, sistemas do catálogo ou
     // linhas móveis vinculados a este departamento — a exclusão é bloqueada
     // pelo banco. Nesse caso é preciso realocar quem/o que está vinculado
     // antes de excluir.
+    const pgError = error as { code?: string; message?: string };
     const message =
-      error.code === "23503"
+      pgError.code === "23503"
         ? "Este departamento tem usuários ou registros vinculados e não pode ser excluído."
         : "Não foi possível excluir o departamento.";
-    console.error("[departments] delete failed", { message: error.message, code: error.code });
+    console.error("[departments] delete failed", { message: pgError.message, code: pgError.code });
     redirectWithError(PATH, message);
   }
 
-  if (!deleted || deleted.length === 0) {
+  if (!rowCount) {
     redirectWithError(PATH, "Departamento não encontrado ou você não tem permissão para excluí-lo.");
   }
 

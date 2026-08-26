@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser, getCurrentProfile } from "@/lib/auth/session";
 import { getNavItems } from "@/components/nav/nav-items";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -14,24 +14,14 @@ export default async function DashboardPage({
   searchParams: Promise<{ denied?: string }>;
 }) {
   const { denied } = await searchParams;
-  const supabase = await createSupabaseServerClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  // A leitura abaixo só retorna o próprio perfil (ou mais, se admin/gestor/RH)
-  // por força da policy `profiles_select` no banco — não por confiança nesta
-  // página.
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, email, role")
-    .eq("id", user.id)
-    .single();
+  const profile = await getCurrentProfile();
 
   const shortcuts = getNavItems(profile?.role ?? null).filter((item) => item.href !== "/dashboard");
   const roleLabel = profile?.role

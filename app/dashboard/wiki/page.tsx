@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { BookOpen, FolderPlus, Pencil, Plus, Trash2 } from "lucide-react";
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import {
   createCategoryAction,
   createArticleAction,
@@ -39,38 +39,48 @@ type ArticleRow = {
   knowledge_base_categories: { name: string } | null;
 };
 
+type ArticleQueryRow = {
+  id: string;
+  title: string;
+  is_published: boolean;
+  updated_at: string;
+  category_id: string | null;
+  category_name: string | null;
+};
+
 export default async function WikiPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
+  const session = await getSession();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const canManage = session?.role === "admin_ti" || session?.role === "rh";
 
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  const canManage = profile?.role === "admin_ti" || profile?.role === "rh";
-
-  const [{ data: categories }, { data: articles }] = await Promise.all([
-    supabase.from("knowledge_base_categories").select("id, name, description").order("name"),
-    supabase
-      .from("knowledge_base_articles")
-      .select("id, title, is_published, updated_at, category_id, knowledge_base_categories(name)")
-      .order("updated_at", { ascending: false })
-      .returns<ArticleRow[]>(),
+  // Sem RLS: knowledge_base_categories é legível por qualquer sessão válida;
+  // knowledge_base_articles só mostra rascunhos (is_published = false) pra
+  // admin_ti/rh — o mesmo comportamento que a policy kb_articles_select dava.
+  const [{ rows: categories }, { rows: rawArticles }] = await Promise.all([
+    pool.query<CategoryRow>("select id, name, description from knowledge_base_categories order by name"),
+    pool.query<ArticleQueryRow>(
+      `select a.id, a.title, a.is_published, a.updated_at, a.category_id, c.name as category_name
+       from knowledge_base_articles a
+       left join knowledge_base_categories c on c.id = a.category_id
+       where $1 or a.is_published = true
+       order by a.updated_at desc`,
+      [canManage]
+    ),
   ]);
+
+  const articles: ArticleRow[] = rawArticles.map((a) => ({
+    id: a.id,
+    title: a.title,
+    is_published: a.is_published,
+    updated_at: a.updated_at,
+    category_id: a.category_id,
+    knowledge_base_categories: a.category_name ? { name: a.category_name } : null,
+  }));
 
   return (
     <>
@@ -121,7 +131,7 @@ export default async function WikiPage({
                   <Field label="Categoria" htmlFor="category_id" hint="Opcional">
                     <Select id="category_id" name="category_id" defaultValue="">
                       <option value="">Nenhuma</option>
-                      {(categories ?? []).map((c) => (
+                      {categories.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}
                         </option>
@@ -147,7 +157,7 @@ export default async function WikiPage({
         }
       />
 
-      {canManage && categories && categories.length > 0 ? (
+      {canManage && categories.length > 0 ? (
         <Section title="Categorias" className="mb-6">
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {categories.map((category) => (
@@ -215,7 +225,7 @@ export default async function WikiPage({
         </Section>
       ) : null}
 
-      {!articles || articles.length === 0 ? (
+      {articles.length === 0 ? (
         <EmptyState
           icon={BookOpen}
           title="Nenhum artigo disponível"

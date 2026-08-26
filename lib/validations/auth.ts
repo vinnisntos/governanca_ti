@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // Arquitetura alinhada com as diretrizes do ADR Master.
 // Zero-Trust: mesmo vindo de um formulário do próprio portal, todo payload
-// é revalidado no servidor antes de tocar o Supabase Auth.
+// é revalidado no servidor antes de tocar o banco (ver app/login/actions.ts).
 export const loginSchema = z
   .object({
     email: z.string().trim().toLowerCase().email("E-mail inválido").max(255),

@@ -43,8 +43,6 @@ export function LoginForm() {
 
           {reason === "inactive" ? (
             <Alert tone="danger">Sua conta foi desativada. Fale com o TI.</Alert>
-          ) : reason === "denied" ? (
-            <Alert tone="warning">Você não tem permissão para acessar essa área.</Alert>
           ) : null}
 
           <Field label="E-mail corporativo" htmlFor="email" required>

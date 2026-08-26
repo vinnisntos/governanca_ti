@@ -1,18 +1,18 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
+import { pool } from "@/lib/db/client";
+import { withRequestContext } from "@/lib/db/context";
+import { getClientIp } from "@/lib/utils/client-ip";
+import { saveFile, deleteFile } from "@/lib/storage/local";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
 import {
   createHardwareCheckinSchema,
   checkinPhotoConstraints,
 } from "@/lib/validations/hardware";
-import { currentReferenceMonth } from "@/lib/utils/reference-month";
 import { sniffImageMimeType } from "@/lib/utils/sniff-image-type";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
-
-// Arquitetura alinhada com as diretrizes do ADR Master.
 
 const PATH = "/dashboard/hardware";
 
@@ -48,65 +48,70 @@ export async function submitCheckinAction(formData: FormData) {
     redirectWithError(PATH, "A foto deve ser JPEG, PNG ou WebP.");
   }
 
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  const session = await getSession();
+  if (!session) {
     redirect("/login");
   }
 
-  // Confere que o ativo é mesmo do usuário ANTES de gastar uma chamada de
-  // upload no Storage — a policy hardware_checkins_insert faria essa mesma
-  // checagem no INSERT, isto é só para falhar cedo com uma mensagem melhor.
-  const { data: asset } = await supabase
-    .from("hardware_assets")
-    .select("id")
-    .eq("id", parsed.data.asset_id)
-    .eq("assigned_to", user.id)
-    .maybeSingle();
+  // Confere que o ativo é mesmo do usuário ANTES de gastar uma gravação em
+  // disco — o INSERT abaixo faz essa mesma checagem de forma atômica
+  // (INSERT ... SELECT ... WHERE EXISTS), isto é só para falhar cedo com
+  // uma mensagem melhor.
+  const { rows: ownedAsset } = await pool.query<{ id: string }>(
+    "select id from hardware_assets where id = $1 and assigned_to = $2",
+    [parsed.data.asset_id, session.id]
+  );
 
-  if (!asset) {
+  if (ownedAsset.length === 0) {
     redirectWithError(PATH, "Este equipamento não está vinculado a você.");
   }
 
   const extension =
     sniffedType === "image/png" ? "png" : sniffedType === "image/webp" ? "webp" : "jpg";
+  const buffer = Buffer.from(await file.arrayBuffer());
   // Caminho SEMPRE montado no servidor a partir do id do usuário logado e de
   // um nome aleatório — nunca a partir de um valor vindo do client — para
   // impedir path traversal e colisão entre usuários.
-  const storagePath = `${user.id}/${randomUUID()}.${extension}`;
+  const storagePath = await saveFile("hardware-checkin-photos", session.id, buffer, extension);
 
-  const { error: uploadError } = await supabase.storage
-    .from("hardware-checkin-photos")
-    .upload(storagePath, file, { contentType: sniffedType, upsert: false });
+  const clientIp = await getClientIp();
 
-  if (uploadError) {
-    console.error("[hardware-checkins] upload failed", { message: uploadError.message });
-    redirectWithError(PATH, "Não foi possível enviar a foto.");
-  }
+  try {
+    const { rowCount } = await withRequestContext({ userId: session.id, clientIp }, (client) =>
+      client.query(
+        `insert into hardware_checkins
+           (asset_id, profile_id, photo_storage_path, physical_condition, condition_notes,
+            maintenance_requested, maintenance_details)
+         select $1, $2, $3, $4, $5, $6, $7
+         where exists (
+           select 1 from hardware_assets where id = $1 and assigned_to = $2
+         )
+         returning id`,
+        [
+          parsed.data.asset_id,
+          session.id,
+          storagePath,
+          parsed.data.physical_condition,
+          parsed.data.condition_notes ?? null,
+          parsed.data.maintenance_requested,
+          parsed.data.maintenance_requested ? parsed.data.maintenance_details ?? null : null,
+        ]
+      )
+    );
 
-  const { error: insertError } = await supabase.from("hardware_checkins").insert({
-    asset_id: parsed.data.asset_id,
-    profile_id: user.id,
-    reference_month: currentReferenceMonth(),
-    photo_storage_path: storagePath,
-    physical_condition: parsed.data.physical_condition,
-    condition_notes: parsed.data.condition_notes ?? null,
-    maintenance_requested: parsed.data.maintenance_requested,
-    maintenance_details: parsed.data.maintenance_requested
-      ? parsed.data.maintenance_details ?? null
-      : null,
-  });
-
-  if (insertError) {
-    console.error("[hardware-checkins] insert failed", { message: insertError.message });
-    // A foto já subiu ao Storage antes deste insert (linha 81-83) — sem isso,
-    // cada tentativa que falha (ex.: check-in duplicado do mês) deixa um
-    // arquivo órfão, sem nenhum hardware_checkins que o referencie.
-    await supabase.storage.from("hardware-checkin-photos").remove([storagePath]);
-    const alreadyDone = insertError.message.includes("uq_checkin_asset_month");
+    if (rowCount === 0) {
+      // A foto já foi salva em disco antes deste INSERT — sem apagar aqui,
+      // uma corrida (ativo reatribuído entre a checagem acima e o INSERT)
+      // deixaria um arquivo órfão, sem nenhum hardware_checkins que o
+      // referencie.
+      await deleteFile(storagePath);
+      redirectWithError(PATH, "Este equipamento não está vinculado a você.");
+    }
+  } catch (error) {
+    await deleteFile(storagePath);
+    const pgError = error as { code?: string; message?: string };
+    console.error("[hardware-checkins] insert failed", { message: pgError.message });
+    const alreadyDone = pgError.code === "23505";
     redirectWithError(
       PATH,
       alreadyDone

@@ -41,7 +41,7 @@ export type CancelAccessRequestInput = z.infer<typeof cancelAccessRequestSchema>
 
 // Usado pelo aprovador (gestor direto do solicitante ou admin_ti).
 // review_notes é obrigatório para 'negado' — reforçado também no banco
-// (ver bloco 3 de supabase/migrations/0001_init.sql) para não depender só do client.
+// (ver bloco 4 de db/migrations/0001_init.sql) para não depender só do client.
 export const decideAccessRequestSchema = z
   .object({
     request_id: z.string().uuid(),
@@ -59,12 +59,18 @@ export const decideAccessRequestSchema = z
 export type DecideAccessRequestInput = z.infer<typeof decideAccessRequestSchema>;
 
 // Usado por admin_ti para encerrar um acesso já aprovado (ver
-// supabase/migrations/0005_revoke_access.sql — só a transição
-// aprovado -> revogado é permitida pela trigger/RLS).
+// db/migrations/0001_init.sql — só a transição aprovado -> revogado é
+// permitida pela trigger fn_validate_access_request_transition, que também
+// passou a exigir revoke_reason — mesmo padrão já usado para review_notes
+// ao negar uma solicitação).
 export const revokeAccessSchema = z
   .object({
     request_id: z.string().uuid(),
-    revoke_reason: z.string().trim().max(2000).optional(),
+    revoke_reason: z
+      .string()
+      .trim()
+      .min(10, "Descreva o motivo da revogação (mín. 10 caracteres)")
+      .max(2000),
   })
   .strict();
 

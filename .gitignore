@@ -22,10 +22,6 @@ npm-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# supabase local
-/supabase/.branches
-/supabase/.temp
-
 # documentação interna (arquitetura, ADR, setup, progresso) — não sobe pro git
 /ARQUITETURA_TECNICA.md
 /ARCH_DECISIONS.txt

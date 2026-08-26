@@ -10,7 +10,7 @@ import { cookies } from "next/headers";
 // Um cookie HttpOnly de vida curta evita os dois.
 //
 // Limitação aceita: Server Components não podem apagar cookies durante o
-// render (só Server Actions/Route Handlers podem — ver lib/supabase/server.ts).
+// render (só Server Actions/Route Handlers podem — ver lib/auth/cookies.ts).
 // Por isso o cookie expira sozinho em 30s em vez de ser apagado no primeiro
 // GET; um refresh dentro dessa janela reexibe a senha, o que é aceitável
 // dado o ganho de não trafegar o segredo pela URL.

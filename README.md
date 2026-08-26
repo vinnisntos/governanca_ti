@@ -6,7 +6,7 @@
 
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20Auth-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Dokploy-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 
 </div>
@@ -17,7 +17,7 @@
 
 Times de TI acabam gerenciando acesso a sistemas, notebooks, linhas corporativas e políticas internas espalhados entre planilhas, formulários avulsos e ferramentas desatualizadas. Isso dificulta auditoria, atrasa onboarding/offboarding e esconde custos (licenças ociosas, hardware perdido).
 
-O **Portal de Governança de TI** centraliza isso tudo em um painel único, com todo o controle de permissão garantido no próprio banco de dados — não apenas na interface.
+O **Portal de Governança de TI** centraliza isso tudo em um painel único, rodando sobre um Postgres próprio (sem dependência de nenhuma plataforma de terceiros) — o Next.js é o único cliente do banco, e toda autenticação, sessão e autorização são resolvidas pela própria aplicação.
 
 ## 🚀 Módulos
 
@@ -31,16 +31,16 @@ O **Portal de Governança de TI** centraliza isso tudo em um painel único, com 
 
 ## 🔒 Segurança por padrão
 
-- **Row Level Security em 100% das tabelas** — o frontend nunca decide quem vê o quê; ele só reflete o que o Postgres já autorizou.
+- **Autorização explícita no código**: sem RLS/PostgREST — o Next.js é o único cliente do Postgres, e cada leitura/escrita traz o `WHERE`/`requireRole()` equivalente à antiga policy (ver `db/migrations/0001_init.sql`).
 - **RBAC granular** (`admin_ti`, `gestor`, `rh`, `colaborador`), com gestores enxergando apenas os pedidos de seus liderados.
-- **Triggers de defesa em profundidade**: campos imutáveis após criação, bloqueio de auto-escalonamento de privilégio, motivo obrigatório em toda recusa.
-- **Auditoria imutável**: toda escrita relevante gera log via trigger `SECURITY DEFINER` — nenhum papel client-side consegue escrever nele.
-- **Sessão blindada**: cookies `HttpOnly` + `Secure` + `SameSite=Strict`, revalidados a cada request.
-- **Zero dependência de APIs de terceiros** — o sistema é isolado por design.
+- **Triggers de defesa em profundidade** no próprio Postgres: campos imutáveis após criação, bloqueio de auto-escalonamento de privilégio, motivo obrigatório em toda recusa.
+- **Auditoria imutável**: toda escrita relevante gera log via trigger `fn_audit_trigger` — nenhum código de aplicação escreve nela diretamente.
+- **Sessão própria**: token opaco em cookie `HttpOnly` + `Secure` + `SameSite=Strict`, validado contra uma tabela `sessions` no banco (revogável na hora ao desativar conta ou redefinir senha).
+- **Senhas com `scrypt`** (nativo do Node) — sem serviço externo de autenticação.
 
 ## 🛠️ Stack
 
-**Next.js 14** (App Router, Server Actions) · **TypeScript** · **Supabase** (Postgres, Auth, Storage) · **Tailwind CSS** · **Zod** para validação server-side.
+**Next.js 14** (App Router, Server Actions) · **TypeScript** · **PostgreSQL** (via `pg`, sem ORM) · **Tailwind CSS** · **Zod** para validação server-side. Arquivos ficam em disco (filesystem local, ver `lib/storage/local.ts`), servidos por Route Handlers autenticadas.
 
 ---
 

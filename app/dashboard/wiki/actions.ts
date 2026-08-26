@@ -2,20 +2,21 @@
 
 import { z } from "zod";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
-import { requireRole } from "@/lib/utils/require-role";
+import { requireRole } from "@/lib/auth/require-role";
+import { withRequestContext } from "@/lib/db/context";
+import { getClientIp } from "@/lib/utils/client-ip";
 import {
   upsertKnowledgeBaseArticleSchema,
   upsertKnowledgeBaseCategorySchema,
 } from "@/lib/validations/knowledge-base";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
+import type { UserRole } from "@/lib/auth/session";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-// Autorização real é a policy kb_articles_write / kb_categories_write
-// (RLS: admin_ti OU rh); requireRole() é defesa em profundidade para dar uma
-// mensagem clara em vez de depender só do efeito colateral silencioso do RLS.
+// Sem RLS no banco: requireRole(["admin_ti","rh"]) é a autoridade real de
+// escrita nestas duas tabelas agora.
 
 const LIST_PATH = "/dashboard/wiki";
-const WRITE_ROLES = ["admin_ti", "rh"] as const;
+const WRITE_ROLES: UserRole[] = ["admin_ti", "rh"];
 
 function emptyToNull(value: FormDataEntryValue | null) {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -25,7 +26,7 @@ function emptyToNull(value: FormDataEntryValue | null) {
 export async function createCategoryAction(formData: FormData) {
   await assertTrustedOrigin();
 
-  const { authorized, supabase } = await requireRole([...WRITE_ROLES]);
+  const { authorized, session } = await requireRole(WRITE_ROLES);
   if (!authorized) {
     redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
   }
@@ -39,10 +40,17 @@ export async function createCategoryAction(formData: FormData) {
     redirectWithError(LIST_PATH, "Informe o nome da categoria (mín. 2 caracteres).");
   }
 
-  const { error } = await supabase.from("knowledge_base_categories").insert(parsed.data);
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[wiki] create category failed", { message: error.message });
+  try {
+    await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query("insert into knowledge_base_categories (name, description) values ($1, $2)", [
+        parsed.data.name,
+        parsed.data.description ?? null,
+      ])
+    );
+  } catch (error) {
+    console.error("[wiki] create category failed", { message: (error as Error).message });
     redirectWithError(LIST_PATH, "Não foi possível criar a categoria (nome já existe?).");
   }
 
@@ -57,7 +65,7 @@ export async function updateCategoryAction(formData: FormData) {
     redirectWithError(LIST_PATH, "Categoria inválida.");
   }
 
-  const { authorized, supabase } = await requireRole([...WRITE_ROLES]);
+  const { authorized, session } = await requireRole(WRITE_ROLES);
   if (!authorized) {
     redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
   }
@@ -71,19 +79,20 @@ export async function updateCategoryAction(formData: FormData) {
     redirectWithError(LIST_PATH, "Informe o nome da categoria (mín. 2 caracteres).");
   }
 
-  const { data: updated, error } = await supabase
-    .from("knowledge_base_categories")
-    .update(parsed.data)
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query("update knowledge_base_categories set name = $2, description = $3 where id = $1 returning id", [
+      id,
+      parsed.data.name,
+      parsed.data.description ?? null,
+    ])
+  ).catch((error: unknown) => {
+    console.error("[wiki] update category failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
 
-  if (error) {
-    console.error("[wiki] update category failed", { message: error.message });
-    redirectWithError(LIST_PATH, "Não foi possível salvar as alterações (nome já existe?).");
-  }
-
-  if (!updated || updated.length === 0) {
-    redirectWithError(LIST_PATH, "Categoria não encontrada ou você não tem permissão para alterá-la.");
+  if (!rowCount) {
+    redirectWithError(LIST_PATH, "Categoria não encontrada ou não foi possível salvar as alterações.");
   }
 
   redirectWithSuccess(LIST_PATH, "Categoria atualizada.");
@@ -97,29 +106,32 @@ export async function deleteCategoryAction(formData: FormData) {
     redirectWithError(LIST_PATH, "Categoria inválida.");
   }
 
-  const { authorized, supabase } = await requireRole([...WRITE_ROLES]);
+  const { authorized, session } = await requireRole(WRITE_ROLES);
   if (!authorized) {
     redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
   }
 
-  const { data: deleted, error } = await supabase
-    .from("knowledge_base_categories")
-    .delete()
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
 
-  if (error) {
+  let rowCount = 0;
+  try {
+    const result = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query("delete from knowledge_base_categories where id = $1 returning id", [id])
+    );
+    rowCount = result.rowCount ?? 0;
+  } catch (error) {
+    const pgError = error as { code?: string; message?: string };
     // 23503 = violação de FK: existem artigos apontando para esta categoria.
     const message =
-      error.code === "23503"
+      pgError.code === "23503"
         ? "Esta categoria tem artigos vinculados e não pode ser excluída."
         : "Não foi possível excluir a categoria.";
-    console.error("[wiki] delete category failed", { message: error.message, code: error.code });
+    console.error("[wiki] delete category failed", { message: pgError.message, code: pgError.code });
     redirectWithError(LIST_PATH, message);
   }
 
-  if (!deleted || deleted.length === 0) {
-    redirectWithError(LIST_PATH, "Categoria não encontrada ou você não tem permissão para excluí-la.");
+  if (!rowCount) {
+    redirectWithError(LIST_PATH, "Categoria não encontrada.");
   }
 
   redirectWithSuccess(LIST_PATH, "Categoria excluída.");
@@ -128,8 +140,8 @@ export async function deleteCategoryAction(formData: FormData) {
 export async function createArticleAction(formData: FormData) {
   await assertTrustedOrigin();
 
-  const { authorized, supabase, user } = await requireRole([...WRITE_ROLES]);
-  if (!authorized || !user) {
+  const { authorized, session } = await requireRole(WRITE_ROLES);
+  if (!authorized) {
     redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
   }
 
@@ -144,13 +156,18 @@ export async function createArticleAction(formData: FormData) {
     redirectWithError(LIST_PATH, "Preencha título e conteúdo do artigo.");
   }
 
-  const { error } = await supabase.from("knowledge_base_articles").insert({
-    ...parsed.data,
-    created_by: user.id,
-  });
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[wiki] create article failed", { message: error.message });
+  try {
+    await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query(
+        `insert into knowledge_base_articles (category_id, title, content, is_published, created_by)
+         values ($1, $2, $3, $4, $5)`,
+        [parsed.data.category_id, parsed.data.title, parsed.data.content, parsed.data.is_published, session!.id]
+      )
+    );
+  } catch (error) {
+    console.error("[wiki] create article failed", { message: (error as Error).message });
     redirectWithError(LIST_PATH, "Não foi possível criar o artigo.");
   }
 
@@ -167,8 +184,8 @@ export async function updateArticleAction(formData: FormData) {
 
   const articlePath = `${LIST_PATH}/${articleId}`;
 
-  const { authorized, supabase, user } = await requireRole([...WRITE_ROLES]);
-  if (!authorized || !user) {
+  const { authorized, session } = await requireRole(WRITE_ROLES);
+  if (!authorized) {
     redirectWithError(articlePath, "Você não tem permissão para esta ação.");
   }
 
@@ -183,19 +200,22 @@ export async function updateArticleAction(formData: FormData) {
     redirectWithError(articlePath, "Preencha título e conteúdo do artigo.");
   }
 
-  const { data: updated, error } = await supabase
-    .from("knowledge_base_articles")
-    .update({ ...parsed.data, updated_by: user.id })
-    .eq("id", articleId as string)
-    .select("id");
+  const clientIp = await getClientIp();
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query(
+      `update knowledge_base_articles
+       set category_id = $2, title = $3, content = $4, is_published = $5, updated_by = $6
+       where id = $1
+       returning id`,
+      [articleId, parsed.data.category_id, parsed.data.title, parsed.data.content, parsed.data.is_published, session!.id]
+    )
+  ).catch((error: unknown) => {
+    console.error("[wiki] update article failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
 
-  if (error) {
-    console.error("[wiki] update article failed", { message: error.message });
-    redirectWithError(articlePath, "Não foi possível salvar as alterações.");
-  }
-
-  if (!updated || updated.length === 0) {
-    redirectWithError(articlePath, "Artigo não encontrado ou você não tem permissão para alterá-lo.");
+  if (!rowCount) {
+    redirectWithError(articlePath, "Artigo não encontrado ou não foi possível salvar as alterações.");
   }
 
   redirectWithSuccess(articlePath, "Artigo atualizado.");
@@ -211,24 +231,24 @@ export async function togglePublishArticleAction(formData: FormData) {
     redirectWithError(LIST_PATH, "Artigo inválido.");
   }
 
-  const { authorized, supabase, user } = await requireRole([...WRITE_ROLES]);
-  if (!authorized || !user) {
+  const { authorized, session } = await requireRole(WRITE_ROLES);
+  if (!authorized) {
     redirectWithError(LIST_PATH, "Você não tem permissão para esta ação.");
   }
 
-  const { data: updated, error } = await supabase
-    .from("knowledge_base_articles")
-    .update({ is_published: nextPublished, updated_by: user.id })
-    .eq("id", articleId as string)
-    .select("id");
+  const clientIp = await getClientIp();
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query(
+      "update knowledge_base_articles set is_published = $2, updated_by = $3 where id = $1 returning id",
+      [articleId, nextPublished, session!.id]
+    )
+  ).catch((error: unknown) => {
+    console.error("[wiki] toggle publish failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
 
-  if (error) {
-    console.error("[wiki] toggle publish failed", { message: error.message });
-    redirectWithError(LIST_PATH, "Não foi possível atualizar a publicação.");
-  }
-
-  if (!updated || updated.length === 0) {
-    redirectWithError(LIST_PATH, "Artigo não encontrado ou você não tem permissão para alterá-lo.");
+  if (!rowCount) {
+    redirectWithError(LIST_PATH, "Artigo não encontrado ou não foi possível salvar as alterações.");
   }
 
   redirectWithSuccess(LIST_PATH, nextPublished ? "Artigo publicado." : "Artigo despublicado.");

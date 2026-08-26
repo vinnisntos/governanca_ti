@@ -1,5 +1,5 @@
 import "server-only";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { pool } from "@/lib/db/client";
 import { CATEGORY_LABELS, STATUS_LABELS as HARDWARE_STATUS_LABELS } from "@/app/dashboard/admin/hardware/labels";
 import { LINE_TYPE_LABELS, STATUS_LABELS as TELEFONIA_STATUS_LABELS } from "@/app/dashboard/admin/telefonia/labels";
 import { ACCESS_STATUS_LABELS, ACTION_LABELS } from "@/app/dashboard/admin/relatorios/labels";
@@ -9,7 +9,9 @@ import type { AuditLogRow } from "@/app/dashboard/admin/relatorios/types";
 // .xlsx/.pdf do Dashboard Executivo (ver app/dashboard/admin/relatorios/export/route.ts).
 // Cada fetcher devolve uma forma comum (colunas + linhas) consumida tanto por
 // build-xlsx.ts quanto por build-pdf.tsx, para não duplicar formatação entre
-// os dois formatos.
+// os dois formatos. Sem RLS: quem chama fetchDatasets já passou por
+// requireRole(["admin_ti"]) na rota — os fetchers sempre leem tudo, sem
+// filtro de linha (mesmo alcance que a policy "select admin" dava antes).
 
 export type ReportColumnFormat = "text" | "number" | "currency" | "date" | "datetime";
 
@@ -52,15 +54,19 @@ type HardwareAssetRow = {
   status: keyof typeof HARDWARE_STATUS_LABELS;
   purchase_date: string | null;
   warranty_until: string | null;
-  profiles: { full_name: string; email: string } | null;
+  profile_full_name: string | null;
+  profile_email: string | null;
 };
 
-async function fetchHardwareDataset(supabase: SupabaseClient): Promise<ReportDataset> {
-  const { data } = await supabase
-    .from("hardware_assets")
-    .select("asset_tag, category, model, serial_number, status, purchase_date, warranty_until, profiles(full_name, email)")
-    .order("asset_tag")
-    .returns<HardwareAssetRow[]>();
+async function fetchHardwareDataset(): Promise<ReportDataset> {
+  const { rows } = await pool.query<HardwareAssetRow>(
+    `select ha.asset_tag, ha.category, ha.model, ha.serial_number, ha.status,
+            ha.purchase_date, ha.warranty_until,
+            p.full_name as profile_full_name, p.email as profile_email
+     from hardware_assets ha
+     left join profiles p on p.id = ha.assigned_to
+     order by ha.asset_tag`
+  );
 
   return {
     key: "hardware",
@@ -76,14 +82,14 @@ async function fetchHardwareDataset(supabase: SupabaseClient): Promise<ReportDat
       { key: "purchase_date", label: "Data de compra", format: "date", widthWeight: 1 },
       { key: "warranty_until", label: "Garantia até", format: "date", widthWeight: 1 },
     ],
-    rows: (data ?? []).map((asset) => ({
+    rows: rows.map((asset) => ({
       asset_tag: asset.asset_tag,
-      category: CATEGORY_LABELS[asset.category] ?? asset.category,
+      category: CATEGORY_LABELS[asset.category as keyof typeof CATEGORY_LABELS] ?? asset.category,
       model: asset.model,
       serial_number: asset.serial_number,
       status: HARDWARE_STATUS_LABELS[asset.status] ?? asset.status,
-      responsavel: asset.profiles?.full_name ?? null,
-      email: asset.profiles?.email ?? null,
+      responsavel: asset.profile_full_name,
+      email: asset.profile_email,
       purchase_date: asset.purchase_date,
       warranty_until: asset.warranty_until,
     })),
@@ -97,16 +103,19 @@ type MobileLineRow = {
   monthly_cost: number;
   line_type: string;
   status: keyof typeof TELEFONIA_STATUS_LABELS;
-  profiles: { full_name: string } | null;
-  departments: { name: string } | null;
+  profile_full_name: string | null;
+  department_name: string | null;
 };
 
-async function fetchTelefoniaDataset(supabase: SupabaseClient): Promise<ReportDataset> {
-  const { data } = await supabase
-    .from("mobile_lines")
-    .select("phone_number, carrier, plan_name, monthly_cost, line_type, status, profiles(full_name), departments(name)")
-    .order("phone_number")
-    .returns<MobileLineRow[]>();
+async function fetchTelefoniaDataset(): Promise<ReportDataset> {
+  const { rows } = await pool.query<MobileLineRow>(
+    `select ml.phone_number, ml.carrier, ml.plan_name, ml.monthly_cost, ml.line_type, ml.status,
+            p.full_name as profile_full_name, d.name as department_name
+     from mobile_lines ml
+     left join profiles p on p.id = ml.assigned_to
+     left join departments d on d.id = ml.department_id
+     order by ml.phone_number`
+  );
 
   return {
     key: "telefonia",
@@ -121,15 +130,15 @@ async function fetchTelefoniaDataset(supabase: SupabaseClient): Promise<ReportDa
       { key: "responsavel", label: "Responsável", widthWeight: 1.3 },
       { key: "setor", label: "Setor", widthWeight: 1 },
     ],
-    rows: (data ?? []).map((line) => ({
+    rows: rows.map((line) => ({
       phone_number: line.phone_number,
       carrier: line.carrier,
       plan_name: line.plan_name,
       monthly_cost: Number(line.monthly_cost),
-      line_type: LINE_TYPE_LABELS[line.line_type] ?? line.line_type,
+      line_type: LINE_TYPE_LABELS[line.line_type as keyof typeof LINE_TYPE_LABELS] ?? line.line_type,
       status: TELEFONIA_STATUS_LABELS[line.status] ?? line.status,
-      responsavel: line.profiles?.full_name ?? null,
-      setor: line.departments?.name ?? null,
+      responsavel: line.profile_full_name,
+      setor: line.department_name,
     })),
   };
 }
@@ -139,15 +148,16 @@ type AccessCatalogRow = {
   description: string | null;
   is_active: boolean;
   monthly_cost: number | null;
-  departments: { name: string } | null;
+  department_name: string | null;
 };
 
-async function fetchLicencasDataset(supabase: SupabaseClient): Promise<ReportDataset> {
-  const { data } = await supabase
-    .from("access_catalog")
-    .select("name, description, is_active, monthly_cost, departments(name)")
-    .order("name")
-    .returns<AccessCatalogRow[]>();
+async function fetchLicencasDataset(): Promise<ReportDataset> {
+  const { rows } = await pool.query<AccessCatalogRow>(
+    `select ac.name, ac.description, ac.is_active, ac.monthly_cost, d.name as department_name
+     from access_catalog ac
+     left join departments d on d.id = ac.owner_department_id
+     order by ac.name`
+  );
 
   return {
     key: "licencas",
@@ -159,10 +169,10 @@ async function fetchLicencasDataset(supabase: SupabaseClient): Promise<ReportDat
       { key: "monthly_cost", label: "Custo mensal", format: "currency", widthWeight: 1 },
       { key: "status", label: "Status", widthWeight: 0.8 },
     ],
-    rows: (data ?? []).map((item) => ({
+    rows: rows.map((item) => ({
       name: item.name,
       description: item.description,
-      setor: item.departments?.name ?? null,
+      setor: item.department_name,
       monthly_cost: item.monthly_cost != null ? Number(item.monthly_cost) : null,
       status: item.is_active ? "Ativo" : "Inativo",
     })),
@@ -175,20 +185,25 @@ type AccessRequestRow = {
   review_notes: string | null;
   decision_at: string | null;
   created_at: string;
-  access_catalog: { name: string } | null;
+  catalog_name: string | null;
   requested_system_name: string | null;
-  requester: { full_name: string; email: string } | null;
-  reviewer: { full_name: string } | null;
+  requester_full_name: string | null;
+  requester_email: string | null;
+  reviewer_full_name: string | null;
 };
 
-async function fetchAcessosDataset(supabase: SupabaseClient): Promise<ReportDataset> {
-  const { data } = await supabase
-    .from("access_requests")
-    .select(
-      "status, justification, review_notes, decision_at, created_at, access_catalog(name), requested_system_name, requester:profiles!access_requests_requester_id_fkey(full_name, email), reviewer:profiles!access_requests_reviewed_by_fkey(full_name)"
-    )
-    .order("created_at", { ascending: false })
-    .returns<AccessRequestRow[]>();
+async function fetchAcessosDataset(): Promise<ReportDataset> {
+  const { rows } = await pool.query<AccessRequestRow>(
+    `select ar.status, ar.justification, ar.review_notes, ar.decision_at, ar.created_at,
+            ac.name as catalog_name, ar.requested_system_name,
+            requester.full_name as requester_full_name, requester.email as requester_email,
+            reviewer.full_name as reviewer_full_name
+     from access_requests ar
+     left join access_catalog ac on ac.id = ar.system_id
+     left join profiles requester on requester.id = ar.requester_id
+     left join profiles reviewer on reviewer.id = ar.reviewed_by
+     order by ar.created_at desc`
+  );
 
   return {
     key: "acessos",
@@ -204,13 +219,13 @@ async function fetchAcessosDataset(supabase: SupabaseClient): Promise<ReportData
       { key: "created_at", label: "Criado em", format: "datetime", widthWeight: 1 },
       { key: "decision_at", label: "Decidido em", format: "datetime", widthWeight: 1 },
     ],
-    rows: (data ?? []).map((request) => ({
-      solicitante: request.requester?.full_name ?? "Colaborador removido",
-      email: request.requester?.email ?? null,
-      sistema: request.access_catalog?.name ?? request.requested_system_name ?? "Sistema removido",
+    rows: rows.map((request) => ({
+      solicitante: request.requester_full_name ?? "Colaborador removido",
+      email: request.requester_email,
+      sistema: request.catalog_name ?? request.requested_system_name ?? "Sistema removido",
       status: ACCESS_STATUS_LABELS[request.status] ?? request.status,
       justification: request.justification,
-      aprovador: request.reviewer?.full_name ?? null,
+      aprovador: request.reviewer_full_name,
       review_notes: request.review_notes,
       created_at: request.created_at,
       decision_at: request.decision_at,
@@ -218,13 +233,15 @@ async function fetchAcessosDataset(supabase: SupabaseClient): Promise<ReportData
   };
 }
 
-async function fetchAuditoriaDataset(supabase: SupabaseClient): Promise<ReportDataset> {
-  const { data } = await supabase
-    .from("audit_logs")
-    .select("id, table_name, action, created_at, profiles(full_name)")
-    .order("created_at", { ascending: false })
-    .limit(EXPORT_AUDIT_LOG_LIMIT)
-    .returns<AuditLogRow[]>();
+async function fetchAuditoriaDataset(): Promise<ReportDataset> {
+  const { rows } = await pool.query<AuditLogRow & { profile_full_name: string | null }>(
+    `select al.id, al.table_name, al.action, al.created_at, p.full_name as profile_full_name
+     from audit_logs al
+     left join profiles p on p.id = al.changed_by
+     order by al.created_at desc
+     limit $1`,
+    [EXPORT_AUDIT_LOG_LIMIT]
+  );
 
   return {
     key: "auditoria",
@@ -235,16 +252,16 @@ async function fetchAuditoriaDataset(supabase: SupabaseClient): Promise<ReportDa
       { key: "action", label: "Ação", widthWeight: 0.8 },
       { key: "table_name", label: "Tabela", widthWeight: 1 },
     ],
-    rows: (data ?? []).map((log) => ({
+    rows: rows.map((log) => ({
       created_at: log.created_at,
-      quem: log.profiles?.full_name ?? "—",
-      action: ACTION_LABELS[log.action] ?? log.action,
+      quem: log.profile_full_name ?? "—",
+      action: ACTION_LABELS[log.action as keyof typeof ACTION_LABELS] ?? log.action,
       table_name: log.table_name,
     })),
   };
 }
 
-const FETCHERS: Record<DatasetKey, (supabase: SupabaseClient) => Promise<ReportDataset>> = {
+const FETCHERS: Record<DatasetKey, () => Promise<ReportDataset>> = {
   hardware: fetchHardwareDataset,
   telefonia: fetchTelefoniaDataset,
   acessos: fetchAcessosDataset,
@@ -256,6 +273,6 @@ export function isDatasetKey(value: string): value is DatasetKey {
   return (DATASET_KEYS as string[]).includes(value);
 }
 
-export async function fetchDatasets(supabase: SupabaseClient, keys: DatasetKey[]): Promise<ReportDataset[]> {
-  return Promise.all(keys.map((key) => FETCHERS[key](supabase)));
+export async function fetchDatasets(keys: DatasetKey[]): Promise<ReportDataset[]> {
+  return Promise.all(keys.map((key) => FETCHERS[key]()));
 }

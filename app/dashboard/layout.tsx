@@ -1,31 +1,35 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSession, destroySession } from "@/lib/auth/session";
 import { signOutAction } from "./actions";
 import { SidebarContent } from "@/components/nav/sidebar-content";
 import { MobileNav } from "@/components/nav/mobile-nav";
 import { MobileHeaderTitle } from "@/components/nav/mobile-header-title";
 
+// Autoridade real de acesso ao portal (o middleware só sabe se existe UM
+// cookie de sessão — não tem acesso ao banco no runtime Edge). Sem RLS no
+// Postgres, esta checagem é o que hoje faz o papel que antes era do banco:
+// sessão inválida, conta desativada e senha descartável pendente são
+// tratados aqui, antes de qualquer página filha renderizar.
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const supabase = await createSupabaseServerClient();
+  const session = await getSession();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  if (!session) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, email, role")
-    .eq("id", user.id)
-    .single();
+  if (!session.is_active) {
+    await destroySession();
+    redirect("/login?reason=inactive");
+  }
 
-  const role = profile?.role ?? null;
-  const fullName = profile?.full_name ?? null;
+  if (session.must_change_password) {
+    redirect("/primeiro-acesso");
+  }
+
+  const role = session.role;
+  const fullName = session.full_name;
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[16rem_1fr]">
@@ -37,12 +41,12 @@ export default async function DashboardLayout({ children }: { children: ReactNod
       </a>
 
       <aside className="hidden border-r border-slate-200 bg-white px-2 py-4 lg:flex lg:flex-col">
-        <SidebarContent role={role} fullName={fullName} email={user.email ?? ""} signOutAction={signOutAction} />
+        <SidebarContent role={role} fullName={fullName} email={session.email} signOutAction={signOutAction} />
       </aside>
 
       <div className="flex min-h-screen flex-col">
         <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:hidden">
-          <MobileNav role={role} fullName={fullName} email={user.email ?? ""} signOutAction={signOutAction} />
+          <MobileNav role={role} fullName={fullName} email={session.email} signOutAction={signOutAction} />
           <div className="flex min-w-0 items-center gap-2">
             <ShieldCheck className="h-5 w-5 shrink-0 text-primary-700" aria-hidden />
             <MobileHeaderTitle role={role} />

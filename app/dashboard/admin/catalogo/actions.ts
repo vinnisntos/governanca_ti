@@ -2,21 +2,21 @@
 
 import { z } from "zod";
 import { assertTrustedOrigin } from "@/lib/utils/assert-trusted-origin";
-import { requireRole } from "@/lib/utils/require-role";
+import { requireRole } from "@/lib/auth/require-role";
+import { withRequestContext } from "@/lib/db/context";
+import { getClientIp } from "@/lib/utils/client-ip";
 import { upsertAccessCatalogSchema } from "@/lib/validations/access-catalog";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 
-// Arquitetura alinhada com as diretrizes do ADR Master.
-// Autorização real é a policy access_catalog_write_admin (RLS); requireRole()
-// é defesa em profundidade para dar uma mensagem clara em vez de depender só
-// do efeito colateral silencioso do RLS.
+// Autorização real: requireRole(["admin_ti"]), no lugar da antiga policy
+// access_catalog_write_admin.
 
 const PATH = "/dashboard/admin/catalogo";
 
 export async function createCatalogItemAction(formData: FormData) {
   await assertTrustedOrigin();
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
@@ -28,8 +28,11 @@ export async function createCatalogItemAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     owner_department_id: ownerDepartmentRaw ? ownerDepartmentRaw : null,
+    // trim() antes do length cobre uma string só de espaço(s) — sem isso,
+    // Number(" ") avalia para 0 e um campo "ausente" vira custo zero válido
+    // em vez de ser rejeitado pelo Zod.
     monthly_cost:
-      typeof monthlyCostRaw === "string" && monthlyCostRaw.length > 0
+      typeof monthlyCostRaw === "string" && monthlyCostRaw.trim().length > 0
         ? Number(monthlyCostRaw)
         : null,
   });
@@ -38,15 +41,23 @@ export async function createCatalogItemAction(formData: FormData) {
     redirectWithError(PATH, "Informe ao menos o nome do sistema (mín. 2 caracteres).");
   }
 
-  const { error } = await supabase.from("access_catalog").insert({
-    name: parsed.data.name,
-    description: parsed.data.description ?? null,
-    owner_department_id: parsed.data.owner_department_id ?? null,
-    monthly_cost: parsed.data.monthly_cost ?? null,
-  });
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[access-catalog] create failed", { message: error.message });
+  try {
+    await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query(
+        `insert into access_catalog (name, description, owner_department_id, monthly_cost)
+         values ($1, $2, $3, $4)`,
+        [
+          parsed.data.name,
+          parsed.data.description ?? null,
+          parsed.data.owner_department_id ?? null,
+          parsed.data.monthly_cost ?? null,
+        ]
+      )
+    );
+  } catch (error) {
+    console.error("[access-catalog] create failed", { message: (error as Error).message });
     redirectWithError(PATH, "Não foi possível criar o item (nome já existe?).");
   }
 
@@ -62,7 +73,7 @@ export async function updateCatalogItemAction(formData: FormData) {
     redirectWithError(PATH, "Item inválido.");
   }
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
@@ -74,8 +85,11 @@ export async function updateCatalogItemAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     owner_department_id: ownerDepartmentRaw ? ownerDepartmentRaw : null,
+    // trim() antes do length cobre uma string só de espaço(s) — sem isso,
+    // Number(" ") avalia para 0 e um campo "ausente" vira custo zero válido
+    // em vez de ser rejeitado pelo Zod.
     monthly_cost:
-      typeof monthlyCostRaw === "string" && monthlyCostRaw.length > 0
+      typeof monthlyCostRaw === "string" && monthlyCostRaw.trim().length > 0
         ? Number(monthlyCostRaw)
         : null,
   });
@@ -84,24 +98,28 @@ export async function updateCatalogItemAction(formData: FormData) {
     redirectWithError(PATH, "Informe ao menos o nome do sistema (mín. 2 caracteres).");
   }
 
-  const { data: updated, error } = await supabase
-    .from("access_catalog")
-    .update({
-      name: parsed.data.name,
-      description: parsed.data.description ?? null,
-      owner_department_id: parsed.data.owner_department_id ?? null,
-      monthly_cost: parsed.data.monthly_cost ?? null,
-    })
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[access-catalog] update failed", { message: error.message });
-    redirectWithError(PATH, "Não foi possível salvar as alterações (nome já existe?).");
-  }
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query(
+      `update access_catalog
+       set name = $2, description = $3, owner_department_id = $4, monthly_cost = $5
+       where id = $1`,
+      [
+        id,
+        parsed.data.name,
+        parsed.data.description ?? null,
+        parsed.data.owner_department_id ?? null,
+        parsed.data.monthly_cost ?? null,
+      ]
+    )
+  ).catch((error: unknown) => {
+    console.error("[access-catalog] update failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
 
-  if (!updated || updated.length === 0) {
-    redirectWithError(PATH, "Item não encontrado ou você não tem permissão para alterá-lo.");
+  if (!rowCount) {
+    redirectWithError(PATH, "Item não encontrado ou não foi possível salvar as alterações (nome já existe?).");
   }
 
   redirectWithSuccess(PATH, "Sistema atualizado.");
@@ -116,30 +134,32 @@ export async function deleteCatalogItemAction(formData: FormData) {
     redirectWithError(PATH, "Item inválido.");
   }
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
 
-  const { data: deleted, error } = await supabase
-    .from("access_catalog")
-    .delete()
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
 
-  if (error) {
+  let rowCount: number | null = 0;
+  try {
+    ({ rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+      client.query("delete from access_catalog where id = $1", [id])
+    ));
+  } catch (error) {
     // 23503 = violação de FK: existem access_requests apontando para este
     // sistema, então a exclusão é bloqueada pelo banco. Nesse caso o admin
     // deve desativar o item em vez de excluí-lo.
+    const pgError = error as { code?: string; message?: string };
     const message =
-      error.code === "23503"
+      pgError.code === "23503"
         ? "Este sistema tem solicitações de acesso vinculadas e não pode ser excluído. Desative-o em vez disso."
         : "Não foi possível excluir o item.";
-    console.error("[access-catalog] delete failed", { message: error.message, code: error.code });
+    console.error("[access-catalog] delete failed", { message: pgError.message, code: pgError.code });
     redirectWithError(PATH, message);
   }
 
-  if (!deleted || deleted.length === 0) {
+  if (!rowCount) {
     redirectWithError(PATH, "Item não encontrado ou você não tem permissão para excluí-lo.");
   }
 
@@ -156,23 +176,21 @@ export async function toggleCatalogItemActiveAction(formData: FormData) {
     redirectWithError(PATH, "Item inválido.");
   }
 
-  const { authorized, supabase } = await requireRole(["admin_ti"]);
+  const { authorized, session } = await requireRole(["admin_ti"]);
   if (!authorized) {
     redirectWithError(PATH, "Você não tem permissão para esta ação.");
   }
 
-  const { data: updated, error } = await supabase
-    .from("access_catalog")
-    .update({ is_active: nextActive })
-    .eq("id", id as string)
-    .select("id");
+  const clientIp = await getClientIp();
 
-  if (error) {
-    console.error("[access-catalog] toggle failed", { message: error.message });
-    redirectWithError(PATH, "Não foi possível atualizar o status do item.");
-  }
+  const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
+    client.query("update access_catalog set is_active = $2 where id = $1", [id, nextActive])
+  ).catch((error: unknown) => {
+    console.error("[access-catalog] toggle failed", { message: (error as Error).message });
+    return { rowCount: 0 };
+  });
 
-  if (!updated || updated.length === 0) {
+  if (!rowCount) {
     redirectWithError(PATH, "Item não encontrado ou você não tem permissão para alterá-lo.");
   }
 

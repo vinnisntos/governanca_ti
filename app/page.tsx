@@ -1,16 +1,10 @@
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSession } from "@/lib/auth/session";
 
 export default async function HomePage() {
-  const supabase = await createSupabaseServerClient();
+  const session = await getSession();
 
-  // getUser() revalida o JWT contra o servidor Auth do Supabase — nunca
-  // usar getSession() aqui, que aceitaria um cookie local sem revalidação.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  if (!session) {
     redirect("/login");
   }
 

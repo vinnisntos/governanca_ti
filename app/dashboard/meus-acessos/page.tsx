@@ -1,6 +1,7 @@
 import { Plus, ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import { createAccessRequestAction } from "../access-requests/actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
@@ -12,8 +13,10 @@ import { RequestAccessForm } from "@/components/access/request-access-form";
 
 const PATH = "/dashboard/meus-acessos";
 
+type CatalogOption = { id: string; name: string };
+
 type ApprovedAccessRow = {
-  access_catalog: { name: string } | null;
+  catalog_name: string | null;
   requested_system_name: string | null;
 };
 
@@ -23,28 +26,23 @@ export default async function MyAccessPage({
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
+  const session = await getSession();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  if (!session) {
     redirect("/login");
   }
 
-  const [{ data: catalog }, { data: approved }] = await Promise.all([
-    supabase
-      .from("access_catalog")
-      .select("id, name")
-      .eq("is_active", true)
-      .order("name"),
-    supabase
-      .from("access_requests")
-      .select("access_catalog(name), requested_system_name")
-      .eq("requester_id", user.id)
-      .eq("status", "aprovado")
-      .returns<ApprovedAccessRow[]>(),
+  const [{ rows: catalog }, { rows: approved }] = await Promise.all([
+    pool.query<CatalogOption>(
+      "select id, name from access_catalog where is_active = true order by name"
+    ),
+    pool.query<ApprovedAccessRow>(
+      `select cat.name as catalog_name, ar.requested_system_name
+       from access_requests ar
+       left join access_catalog cat on cat.id = ar.system_id
+       where ar.requester_id = $1 and ar.status = 'aprovado'`,
+      [session.id]
+    ),
   ]);
 
   // Um mesmo sistema pode ter mais de uma solicitação aprovada ao longo do
@@ -52,8 +50,8 @@ export default async function MyAccessPage({
   // pedida como "Outro".
   const myAccess = Array.from(
     new Set(
-      (approved ?? [])
-        .map((row) => row.access_catalog?.name ?? row.requested_system_name)
+      approved
+        .map((row) => row.catalog_name ?? row.requested_system_name)
         .filter((name): name is string => Boolean(name))
     )
   );
@@ -79,7 +77,7 @@ export default async function MyAccessPage({
                 </Button>
               }
             >
-              <RequestAccessForm action={createAccessRequestAction.bind(null, PATH)} catalog={catalog ?? []} />
+              <RequestAccessForm action={createAccessRequestAction.bind(null, PATH)} catalog={catalog} />
             </Modal>
           </>
         }

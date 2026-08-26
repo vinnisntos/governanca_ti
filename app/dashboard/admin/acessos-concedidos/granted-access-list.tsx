@@ -4,6 +4,7 @@ import * as React from "react";
 import { ShieldOff, ShieldX } from "lucide-react";
 import { revokeAccessAction } from "./actions";
 import type { GrantedAccessRow } from "./page";
+import { formatDateBR } from "@/lib/utils/format-datetime";
 import { matchesSearch } from "@/lib/utils/normalize-text";
 import { SearchInput } from "@/components/ui/search-input";
 import { Card, Section } from "@/components/ui/card";
@@ -73,7 +74,7 @@ export function GrantedAccessList({ grants }: { grants: GrantedAccessRow[] }) {
                         <p className="text-sm text-slate-600">{row.requester?.email}</p>
                         {row.decision_at ? (
                           <p className="text-xs text-slate-600">
-                            Aprovado em {new Date(row.decision_at).toLocaleDateString("pt-BR")}
+                            Aprovado em {formatDateBR(row.decision_at)}
                           </p>
                         ) : null}
                       </div>
@@ -90,8 +91,8 @@ export function GrantedAccessList({ grants }: { grants: GrantedAccessRow[] }) {
                       >
                         <form action={revokeAccessAction} className="space-y-4">
                           <input type="hidden" name="request_id" value={row.id} />
-                          <Field label="Motivo da revogação" htmlFor={`reason-${row.id}`} hint="Opcional">
-                            <Textarea id={`reason-${row.id}`} name="revoke_reason" rows={2} />
+                          <Field label="Motivo da revogação" htmlFor={`reason-${row.id}`} required>
+                            <Textarea id={`reason-${row.id}`} name="revoke_reason" rows={2} required minLength={10} />
                           </Field>
                           <div className="flex justify-end">
                             <ConfirmSubmitButton

@@ -1,6 +1,8 @@
-import { notFound, redirect } from "next/navigation";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { notFound } from "next/navigation";
+import { pool } from "@/lib/db/client";
+import { getSession } from "@/lib/auth/session";
 import { updateArticleAction } from "../actions";
+import { formatDateBR } from "@/lib/utils/format-datetime";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Card, Section } from "@/components/ui/card";
@@ -19,9 +21,11 @@ type ArticleRow = {
   is_published: boolean;
   category_id: string | null;
   updated_at: string;
-  creator: { full_name: string } | null;
-  updater: { full_name: string } | null;
+  creator_full_name: string | null;
+  updater_full_name: string | null;
 };
+
+type CategoryOption = { id: string; name: string };
 
 export default async function WikiArticlePage({
   params,
@@ -32,44 +36,32 @@ export default async function WikiArticlePage({
 }) {
   const { articleId } = await params;
   const { error: errorMessage, success: successMessage } = await searchParams;
-  const supabase = await createSupabaseServerClient();
+  const session = await getSession();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const canManage = session?.role === "admin_ti" || session?.role === "rh";
 
-  if (!user) {
-    redirect("/login");
-  }
+  // Sem RLS: se o artigo for rascunho e o usuário não puder gerenciar, o
+  // WHERE abaixo simplesmente não retorna a linha — mesmo comportamento de
+  // antes (não dá pra diferenciar "não existe" de "sem permissão", o que é
+  // proposital: evita vazar a existência de conteúdo não publicado).
+  const { rows } = await pool.query<ArticleRow>(
+    `select a.id, a.title, a.content, a.is_published, a.category_id, a.updated_at,
+            creator.full_name as creator_full_name, updater.full_name as updater_full_name
+     from knowledge_base_articles a
+     left join profiles creator on creator.id = a.created_by
+     left join profiles updater on updater.id = a.updated_by
+     where a.id = $1 and ($2 or a.is_published = true)`,
+    [articleId, canManage]
+  );
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  const canManage = profile?.role === "admin_ti" || profile?.role === "rh";
-
-  // Se o artigo for rascunho e o usuário não for admin_ti/rh, a policy
-  // kb_articles_select simplesmente não retorna a linha — não é possível
-  // diferenciar "não existe" de "sem permissão", o que é o comportamento
-  // correto (evita vazar a existência de conteúdo não publicado).
-  const { data: article } = await supabase
-    .from("knowledge_base_articles")
-    .select(
-      "id, title, content, is_published, category_id, updated_at, creator:profiles!knowledge_base_articles_created_by_fkey(full_name), updater:profiles!knowledge_base_articles_updated_by_fkey(full_name)"
-    )
-    .eq("id", articleId)
-    .maybeSingle<ArticleRow>();
-
+  const article = rows[0];
   if (!article) {
     notFound();
   }
 
-  const { data: categories } = await supabase
-    .from("knowledge_base_categories")
-    .select("id, name")
-    .order("name");
+  const { rows: categories } = await pool.query<CategoryOption>(
+    "select id, name from knowledge_base_categories order by name"
+  );
 
   return (
     <>
@@ -82,8 +74,12 @@ export default async function WikiArticlePage({
       />
 
       <p className="mb-4 text-xs text-slate-600">
-        Última atualização em {new Date(article.updated_at).toLocaleDateString("pt-BR")}
-        {article.updater ? ` por ${article.updater.full_name}` : article.creator ? ` por ${article.creator.full_name}` : ""}
+        Última atualização em {formatDateBR(article.updated_at)}
+        {article.updater_full_name
+          ? ` por ${article.updater_full_name}`
+          : article.creator_full_name
+            ? ` por ${article.creator_full_name}`
+            : ""}
       </p>
 
       {/*
@@ -106,7 +102,7 @@ export default async function WikiArticlePage({
               <Field label="Categoria" htmlFor="category_id">
                 <Select id="category_id" name="category_id" defaultValue={article.category_id ?? ""}>
                   <option value="">Nenhuma</option>
-                  {(categories ?? []).map((c) => (
+                  {categories.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
