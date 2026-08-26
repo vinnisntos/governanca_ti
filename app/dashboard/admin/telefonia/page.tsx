@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/session";
 import { createMobileLineAction } from "./actions";
 import { LINE_TYPE_LABELS, STATUS_LABELS } from "./labels";
 import { LineList } from "./line-list";
@@ -36,10 +37,7 @@ export default async function TelefoniaAdminPage({
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");

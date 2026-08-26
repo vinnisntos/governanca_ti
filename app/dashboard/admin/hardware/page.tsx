@@ -1,6 +1,7 @@
 import { Plus, Wrench } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/session";
 import { createHardwareAssetAction } from "./actions";
 import { CATEGORY_LABELS, STATUS_LABELS } from "./labels";
 import type { AssetRow, ContractRow } from "./types";
@@ -22,10 +23,7 @@ export default async function HardwareAdminPage({
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");

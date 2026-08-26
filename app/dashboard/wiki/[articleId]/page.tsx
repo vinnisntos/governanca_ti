@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser, getCurrentProfile } from "@/lib/supabase/session";
 import { updateArticleAction } from "../actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
@@ -33,20 +34,13 @@ export default async function WikiArticlePage({
   const { articleId } = await params;
   const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const profile = await getCurrentProfile();
 
   const canManage = profile?.role === "admin_ti" || profile?.role === "rh";
 

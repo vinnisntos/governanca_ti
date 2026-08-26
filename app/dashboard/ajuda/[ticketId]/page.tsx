@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { LifeBuoy } from "lucide-react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser, getCurrentProfile } from "@/lib/supabase/session";
 import {
   updateTicketStatusAction,
   closeOwnTicketAction,
@@ -63,28 +64,29 @@ export default async function TicketDetailPage({
   const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  // profile e ticket não dependem um do outro — buscados em paralelo em vez
+  // de sequencialmente.
+  const [profile, { data: ticket }] = await Promise.all([
+    getCurrentProfile(),
+    // Se o chamado for de outro usuário e quem está olhando não for admin_ti,
+    // a policy support_tickets_select simplesmente não retorna a linha —
+    // mesmo tratamento de "não existe" usado na wiki (evita vazar a
+    // existência do chamado de outra pessoa).
+    supabase
+      .from("support_tickets")
+      .select(
+        "id, requester_id, category, subject, status, ticket_number, merged_into_id, created_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email)"
+      )
+      .eq("id", ticketId)
+      .maybeSingle<TicketRow>(),
+  ]);
   const isAdmin = profile?.role === "admin_ti";
-
-  // Se o chamado for de outro usuário e quem está olhando não for admin_ti,
-  // a policy support_tickets_select simplesmente não retorna a linha — mesmo
-  // tratamento de "não existe" usado na wiki (evita vazar a existência do
-  // chamado de outra pessoa).
-  const { data: ticket } = await supabase
-    .from("support_tickets")
-    .select(
-      "id, requester_id, category, subject, status, ticket_number, merged_into_id, created_at, requester:profiles!support_tickets_requester_id_fkey(full_name, email)"
-    )
-    .eq("id", ticketId)
-    .maybeSingle<TicketRow>();
 
   if (!ticket) {
     // Mesmo tratamento pra chamado inexistente e chamado de outra pessoa (a
@@ -112,29 +114,28 @@ export default async function TicketDetailPage({
     );
   }
 
-  const { data: messages } = await supabase
-    .from("support_ticket_messages")
-    .select(
-      "id, sender_id, message, created_at, sender:profiles!support_ticket_messages_sender_id_fkey(full_name, role)"
-    )
-    .eq("ticket_id", ticketId)
-    .order("created_at", { ascending: true })
-    .returns<MessageRow[]>();
-
-  // Busca separada em vez de embutir via join: o embed de auto-relacionamento
-  // do PostgREST (support_tickets -> support_tickets) depende do cache de
-  // schema do PostgREST estar atualizado com a FK support_tickets_merged_into_id_fkey,
-  // o que nem sempre acontece logo após a migração — uma consulta simples não
-  // depende desse cache.
-  let mergedIntoTicketNumber: number | null = null;
-  if (ticket.merged_into_id) {
-    const { data: mergedInto } = await supabase
-      .from("support_tickets")
-      .select("ticket_number")
-      .eq("id", ticket.merged_into_id)
-      .maybeSingle();
-    mergedIntoTicketNumber = mergedInto?.ticket_number ?? null;
-  }
+  // Mensagens e (se houver) o número do chamado de destino da mesclagem não
+  // dependem uma da outra — buscadas em paralelo.
+  //
+  // O merged_into é uma busca separada em vez de embutido via join: o embed
+  // de auto-relacionamento do PostgREST (support_tickets -> support_tickets)
+  // depende do cache de schema do PostgREST estar atualizado com a FK
+  // support_tickets_merged_into_id_fkey, o que nem sempre acontece logo após
+  // a migração — uma consulta simples não depende desse cache.
+  const [{ data: messages }, mergedInto] = await Promise.all([
+    supabase
+      .from("support_ticket_messages")
+      .select(
+        "id, sender_id, message, created_at, sender:profiles!support_ticket_messages_sender_id_fkey(full_name, role)"
+      )
+      .eq("ticket_id", ticketId)
+      .order("created_at", { ascending: true })
+      .returns<MessageRow[]>(),
+    ticket.merged_into_id
+      ? supabase.from("support_tickets").select("ticket_number").eq("id", ticket.merged_into_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  const mergedIntoTicketNumber = mergedInto.data?.ticket_number ?? null;
 
   const isOwner = ticket.requester_id === user.id;
   // Chamado de outra pessoa só chega até aqui pra admin_ti (RLS): quem está

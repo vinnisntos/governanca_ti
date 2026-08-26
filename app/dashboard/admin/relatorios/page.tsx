@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { ClipboardX, Download, Gauge, KeySquare, Phone } from "lucide-react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/session";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
 import { ACCESS_REQUEST_STATUSES, ACCESS_STATUS_LABELS } from "./labels";
 import type { AuditLogRow, DeniedRequestRow, PendingCheckinAssetRow } from "./types";
@@ -27,10 +28,7 @@ function currency(value: number) {
 
 export default async function ExecutiveDashboardPage() {
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");

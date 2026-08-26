@@ -1,6 +1,7 @@
 import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/session";
 import { createDepartmentAction } from "./actions";
 import { DepartmentList } from "./department-list";
 import { PageHeader } from "@/components/ui/page-header";
@@ -21,10 +22,7 @@ export default async function DepartmentsAdminPage({
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");

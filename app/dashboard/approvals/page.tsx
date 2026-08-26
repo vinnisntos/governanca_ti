@@ -1,6 +1,7 @@
 import { ClipboardCheck } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser, getCurrentProfile } from "@/lib/supabase/session";
 import { DecisionForm } from "./decision-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
@@ -28,20 +29,13 @@ export default async function ApprovalsPage({
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
+  const profile = await getCurrentProfile();
 
   const isAdmin = profile?.role === "admin_ti";
 

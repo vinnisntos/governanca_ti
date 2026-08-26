@@ -1,14 +1,12 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/session";
 import { PageHeader } from "@/components/ui/page-header";
 import { TicketList, type TicketListRow } from "@/app/dashboard/ajuda/ticket-list";
 
 export default async function AdminTicketQueuePage() {
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");

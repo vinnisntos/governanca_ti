@@ -1,28 +1,20 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser, getCurrentProfile } from "@/lib/supabase/session";
 import { signOutAction } from "./actions";
 import { SidebarContent } from "@/components/nav/sidebar-content";
 import { MobileNav } from "@/components/nav/mobile-nav";
 import { MobileHeaderTitle } from "@/components/nav/mobile-header-title";
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
-  const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, email, role")
-    .eq("id", user.id)
-    .single();
+  const profile = await getCurrentProfile();
 
   const role = profile?.role ?? null;
   const fullName = profile?.full_name ?? null;

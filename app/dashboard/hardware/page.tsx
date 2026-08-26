@@ -1,6 +1,7 @@
 import { CheckCircle2, ClipboardEdit, Laptop2 } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/supabase/session";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
 import { submitCheckinAction } from "./actions";
 import { PageHeader } from "@/components/ui/page-header";
@@ -64,10 +65,7 @@ export default async function HardwarePage({
 }) {
   const { error: errorMessage, success: successMessage } = await searchParams;
   const supabase = await createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   if (!user) {
     redirect("/login");
