@@ -28,8 +28,11 @@ export async function createCatalogItemAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     owner_department_id: ownerDepartmentRaw ? ownerDepartmentRaw : null,
+    // trim() antes do length cobre uma string só de espaço(s) — sem isso,
+    // Number(" ") avalia para 0 e um campo "ausente" vira custo zero válido
+    // em vez de ser rejeitado pelo Zod.
     monthly_cost:
-      typeof monthlyCostRaw === "string" && monthlyCostRaw.length > 0
+      typeof monthlyCostRaw === "string" && monthlyCostRaw.trim().length > 0
         ? Number(monthlyCostRaw)
         : null,
   });
@@ -82,8 +85,11 @@ export async function updateCatalogItemAction(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description") || undefined,
     owner_department_id: ownerDepartmentRaw ? ownerDepartmentRaw : null,
+    // trim() antes do length cobre uma string só de espaço(s) — sem isso,
+    // Number(" ") avalia para 0 e um campo "ausente" vira custo zero válido
+    // em vez de ser rejeitado pelo Zod.
     monthly_cost:
-      typeof monthlyCostRaw === "string" && monthlyCostRaw.length > 0
+      typeof monthlyCostRaw === "string" && monthlyCostRaw.trim().length > 0
         ? Number(monthlyCostRaw)
         : null,
   });

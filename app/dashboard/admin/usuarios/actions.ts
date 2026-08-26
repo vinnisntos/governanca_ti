@@ -6,11 +6,27 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createUserSchema, updateUserSchema } from "@/lib/validations/users";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 import { withRequestContext } from "@/lib/db/context";
+import { pool } from "@/lib/db/client";
 import { hashPassword } from "@/lib/auth/password";
 import { generateTempPassword } from "@/lib/utils/generate-temp-password";
 import { setTempPasswordFlash } from "@/lib/utils/temp-password-flash";
 import { getClientIp } from "@/lib/utils/client-ip";
 import { destroyAllSessionsForUser } from "@/lib/auth/session";
+
+// Só a UI (<select>) filtra o dropdown de gestores por role
+// gestor/admin_ti + is_active — um POST direto (bypass da tela) aceitaria
+// qualquer UUID de perfil como manager_id sem esta checagem.
+async function managerIsValid(managerId: string): Promise<boolean> {
+  const { rows } = await pool.query<{ role: string; is_active: boolean }>(
+    "select role, is_active from profiles where id = $1",
+    [managerId]
+  );
+  const manager = rows[0];
+  return Boolean(manager && manager.is_active && (manager.role === "gestor" || manager.role === "admin_ti"));
+}
+
+const INVALID_MANAGER_MESSAGE =
+  "O gestor selecionado precisa ter papel Gestor ou Admin de TI e estar ativo.";
 
 // Sem RLS no banco: requireRole(["admin_ti"]) + o layout em
 // app/dashboard/admin/layout.tsx são a autoridade real de acesso a esta
@@ -59,6 +75,10 @@ export async function updateUserAction(formData: FormData) {
     redirectWithError(PATH, "Um usuário não pode ser gestor de si mesmo.");
   }
 
+  if (parsed.data.manager_id && !(await managerIsValid(parsed.data.manager_id))) {
+    redirectWithError(PATH, INVALID_MANAGER_MESSAGE);
+  }
+
   const clientIp = await getClientIp();
   const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
     client.query(
@@ -75,6 +95,13 @@ export async function updateUserAction(formData: FormData) {
 
   if (!rowCount) {
     redirectWithError(PATH, "Usuário não encontrado ou não foi possível salvar as alterações.");
+  }
+
+  // Desativação tem efeito imediato: hoje a sessão do alvo só era destruída
+  // na PRÓXIMA requisição dele (checagem lazy em app/dashboard/layout.tsx) —
+  // isso derruba qualquer sessão já aberta assim que o admin desativa.
+  if (!parsed.data.is_active) {
+    await destroyAllSessionsForUser(id as string);
   }
 
   redirectWithSuccess(PATH, "Usuário atualizado.");
@@ -101,6 +128,10 @@ export async function createUserAction(formData: FormData) {
 
   if (!parsed.success) {
     redirectWithError(PATH, parsed.error.issues[0]?.message ?? "Dados inválidos.");
+  }
+
+  if (parsed.data.manager_id && !(await managerIsValid(parsed.data.manager_id))) {
+    redirectWithError(PATH, INVALID_MANAGER_MESSAGE);
   }
 
   const tempPassword = generateTempPassword();

@@ -19,9 +19,10 @@ function emptyToNull(value: FormDataEntryValue | null) {
 
 // Number(null) e Number("") retornam 0 (não NaN) — um monthly_cost ausente
 // passaria a validação .nonnegative() como custo zero válido em vez de ser
-// rejeitado. Mesmo padrão já usado em admin/catalogo/actions.ts.
+// rejeitado. trim() antes do length cobre também uma string só de espaço(s)
+// (Number(" ") também é 0). Mesmo padrão já usado em admin/catalogo/actions.ts.
 function toNumberOrNull(value: FormDataEntryValue | null) {
-  if (typeof value !== "string" || value.length === 0) return null;
+  if (typeof value !== "string" || value.trim().length === 0) return null;
   return Number(value);
 }
 

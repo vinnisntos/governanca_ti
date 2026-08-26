@@ -10,6 +10,7 @@ import {
 } from "../actions";
 import { CATEGORY_LABELS, STATUS_LABELS, STATUS_TONE } from "../labels";
 import { formatTicketNumber } from "@/lib/utils/format-ticket-number";
+import { formatDateTimeBR } from "@/lib/utils/format-datetime";
 import { ReplyForm } from "./reply-form";
 import { ReopenForm } from "./reopen-form";
 import { PageHeader } from "@/components/ui/page-header";
@@ -179,7 +180,7 @@ export default async function TicketDetailPage({
 
       <p className="mb-4 text-xs text-slate-600">
         {CATEGORY_LABELS[ticket.category]} · aberto em{" "}
-        {new Date(ticket.created_at).toLocaleString("pt-BR")}
+        {formatDateTimeBR(ticket.created_at)}
       </p>
 
       {isMerged && mergedIntoTicketNumber !== null ? (
@@ -210,7 +211,7 @@ export default async function TicketDetailPage({
                       ) : null}
                     </p>
                     <p className="shrink-0 text-xs text-slate-600">
-                      {new Date(message.created_at).toLocaleString("pt-BR")}
+                      {formatDateTimeBR(message.created_at)}
                     </p>
                   </div>
                   <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{message.message}</p>

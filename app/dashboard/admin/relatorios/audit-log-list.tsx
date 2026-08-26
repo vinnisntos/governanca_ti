@@ -4,6 +4,7 @@ import * as React from "react";
 import { ScrollText } from "lucide-react";
 import { ACTION_LABELS } from "./labels";
 import type { AuditLogRow } from "./types";
+import { formatDateTimeBR } from "@/lib/utils/format-datetime";
 import { matchesSearch } from "@/lib/utils/normalize-text";
 import { SearchInput } from "@/components/ui/search-input";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -50,7 +51,7 @@ export function AuditLogList({ logs }: { logs: AuditLogRow[] }) {
               {filtered.map((log) => (
                 <tr key={log.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-3 py-2.5 text-slate-600">
-                    {new Date(log.created_at).toLocaleString("pt-BR")}
+                    {formatDateTimeBR(log.created_at)}
                   </td>
                   <td className="px-3 py-2.5 text-slate-900">{log.profiles?.full_name ?? "—"}</td>
                   <td className="px-3 py-2.5">{ACTION_LABELS[log.action] ?? log.action}</td>

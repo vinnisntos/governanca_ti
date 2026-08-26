@@ -59,8 +59,16 @@ export async function createAccessRequestAction(redirectPath: string, formData: 
       )
     );
   } catch (error) {
-    console.error("[access-requests] create failed", { message: (error as Error).message });
-    redirectWithError(redirectPath, "Não foi possível registrar a solicitação.");
+    // 23505 = violação dos índices únicos parciais que impedem duas
+    // solicitações pendentes/em_analise do mesmo usuário para o mesmo
+    // sistema (db/migrations/0002_fix_inconsistencias.sql).
+    const pgError = error as { code?: string; message?: string };
+    console.error("[access-requests] create failed", { message: pgError.message });
+    const message =
+      pgError.code === "23505"
+        ? "Você já tem uma solicitação pendente para este sistema."
+        : "Não foi possível registrar a solicitação.";
+    redirectWithError(redirectPath, message);
   }
 
   redirectWithSuccess(redirectPath, "Solicitação enviada.");

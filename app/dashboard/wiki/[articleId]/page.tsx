@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { pool } from "@/lib/db/client";
 import { getSession } from "@/lib/auth/session";
 import { updateArticleAction } from "../actions";
+import { formatDateBR } from "@/lib/utils/format-datetime";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Card, Section } from "@/components/ui/card";
@@ -73,7 +74,7 @@ export default async function WikiArticlePage({
       />
 
       <p className="mb-4 text-xs text-slate-600">
-        Última atualização em {new Date(article.updated_at).toLocaleDateString("pt-BR")}
+        Última atualização em {formatDateBR(article.updated_at)}
         {article.updater_full_name
           ? ` por ${article.updater_full_name}`
           : article.creator_full_name

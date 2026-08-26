@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { pool } from "@/lib/db/client";
 import { getSession } from "@/lib/auth/session";
 import { buildTicketPdfReport, type TicketPdfMessage } from "@/lib/reports/build-ticket-pdf";
@@ -35,8 +36,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ tick
   const { ticketId } = await params;
   const session = await getSession();
 
-  if (!session) {
+  if (!session || !session.is_active) {
     return new Response("Não autenticado", { status: 401 });
+  }
+
+  if (!z.string().uuid().safeParse(ticketId).success) {
+    return new Response("Chamado não encontrado", { status: 404 });
   }
 
   const isAdmin = session.role === "admin_ti";

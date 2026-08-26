@@ -19,8 +19,6 @@ import {
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
 import { formatTicketNumber } from "@/lib/utils/format-ticket-number";
 
-const BLOCKING_STATUSES = new Set(["fechado", "cancelado"]);
-
 // Sem RLS no banco: cada Server Action abaixo replica explicitamente, no
 // WHERE (ou via requireRole), a mesma regra que antes vivia nas policies
 // support_tickets_*/support_ticket_messages_* (ver
@@ -124,11 +122,15 @@ export async function addTicketMessageAction(formData: FormData) {
 
   // Sinaliza pro solicitante que alguém do TI já está olhando o chamado.
   // Efeito colateral de UX, não uma transição de segurança — falhar aqui não
-  // invalida a mensagem já enviada com sucesso.
+  // invalida a mensagem já enviada com sucesso. status sempre avança pra
+  // 'em_andamento', mas "coalesce(assigned_to, $2)" só REIVINDICA o chamado
+  // se ninguém ainda o tiver — sem isso, responder a um chamado reaberto
+  // (que volta para 'aberto' mas mantém o assigned_to original) sobrescrevia
+  // silenciosamente o responsável anterior por quem quer que respondesse.
   if (isAdmin) {
     await withRequestContext({ userId: session.id, clientIp }, (client) =>
       client.query(
-        `update support_tickets set status = 'em_andamento', assigned_to = $2
+        `update support_tickets set status = 'em_andamento', assigned_to = coalesce(assigned_to, $2)
          where id = $1 and status = 'aberto'`,
         [parsed.data.ticket_id, session.id]
       )
@@ -176,41 +178,38 @@ export async function updateTicketStatusAction(formData: FormData) {
   const { ticket_id: targetTicketId, status: nextStatus, note } = parsed.data;
   const adminId = session!.id;
   const clientIp = await getClientIp();
-  const enteringBlockingState = BLOCKING_STATUSES.has(nextStatus);
-  const leavingBlockingState = BLOCKING_STATUSES.has(current!.status) && !enteringBlockingState;
 
-  // A guarda de inserção de mensagem bloqueia chamados 'fechado'/'cancelado'
-  // — por isso a nota precisa ser inserida ANTES de entrar num desses
-  // estados, e só DEPOIS de sair deles (reabertura via este mesmo formulário).
-  async function insertNote() {
-    if (!note) return;
-    await withRequestContext({ userId: adminId, clientIp }, (client) =>
-      client.query(
-        "insert into support_ticket_messages (ticket_id, sender_id, message) values ($1, $2, $3)",
-        [targetTicketId, adminId, note]
-      )
-    ).catch((error: unknown) => {
-      console.error("[ajuda] status change note failed", { message: (error as Error).message });
+  // Nota + UPDATE de status na MESMA transação: se o UPDATE não afetar
+  // nenhuma linha (chamado inexistente/estado bloqueado pela trigger —
+  // fn_protect_support_ticket_fields), o rollback desfaz a nota também, em
+  // vez de deixá-la "vazar" para um chamado cuja transição de status falhou.
+  let rowCount = 0;
+  try {
+    await withRequestContext({ userId: adminId, clientIp }, async (client) => {
+      if (note) {
+        await client.query(
+          "insert into support_ticket_messages (ticket_id, sender_id, message) values ($1, $2, $3)",
+          [targetTicketId, adminId, note]
+        );
+      }
+
+      const result = await client.query("update support_tickets set status = $2 where id = $1", [
+        targetTicketId,
+        nextStatus,
+      ]);
+      rowCount = result.rowCount ?? 0;
+
+      if (rowCount === 0) {
+        throw new Error("Nenhum chamado afetado pela mudança de status");
+      }
     });
-  }
-
-  if (enteringBlockingState) {
-    await insertNote();
-  }
-
-  const { rowCount } = await withRequestContext({ userId: adminId, clientIp }, (client) =>
-    client.query("update support_tickets set status = $2 where id = $1", [targetTicketId, nextStatus])
-  ).catch((error: unknown) => {
+  } catch (error) {
     console.error("[ajuda] update status failed", { message: (error as Error).message });
-    return { rowCount: 0 };
-  });
+    rowCount = 0;
+  }
 
   if (!rowCount) {
     redirectWithError(detailPath, "Não foi possível atualizar o status.");
-  }
-
-  if (leavingBlockingState) {
-    await insertNote();
   }
 
   redirectWithSuccess(detailPath, "Status atualizado.");
@@ -372,9 +371,10 @@ export async function mergeTicketsAction(formData: FormData) {
     id: string;
     ticket_number: number;
     requester_id: string;
+    status: string;
     merged_into_id: string | null;
   }>(
-    "select id, ticket_number, requester_id, merged_into_id from support_tickets where ticket_number = $1",
+    "select id, ticket_number, requester_id, status, merged_into_id from support_tickets where ticket_number = $1",
     [parsed.data.target_ticket_number]
   );
   const target = targetRows[0];
@@ -389,6 +389,16 @@ export async function mergeTicketsAction(formData: FormData) {
 
   if (target!.merged_into_id) {
     redirectWithError(detailPath, "O chamado de destino já foi mesclado com outro — escolha o chamado original.");
+  }
+
+  // Um chamado fechado/cancelado não aceita novas mensagens (guarda de
+  // addTicketMessageAction) — mesclar um chamado aberto nele deixaria o
+  // atendimento sem lugar para continuar.
+  if (target!.status === "fechado" || target!.status === "cancelado") {
+    redirectWithError(
+      detailPath,
+      "O chamado de destino está fechado/cancelado — escolha um chamado em aberto como destino."
+    );
   }
 
   if (target!.requester_id !== source!.requester_id) {

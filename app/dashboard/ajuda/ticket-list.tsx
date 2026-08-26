@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LifeBuoy } from "lucide-react";
 import { CATEGORY_LABELS, STATUS_LABELS, STATUS_TONE } from "./labels";
 import { formatTicketNumber } from "@/lib/utils/format-ticket-number";
+import { formatDateTimeBR } from "@/lib/utils/format-datetime";
 import { matchesSearch } from "@/lib/utils/normalize-text";
 import { SearchInput } from "@/components/ui/search-input";
 import { Card } from "@/components/ui/card";
@@ -87,7 +88,7 @@ export function TicketList({
                         : ""}
                     </p>
                     <p className="mt-1 text-xs text-slate-600">
-                      Atualizado em {new Date(ticket.updated_at).toLocaleString("pt-BR")}
+                      Atualizado em {formatDateTimeBR(ticket.updated_at)}
                     </p>
                   </div>
                   <Badge tone={STATUS_TONE[ticket.status]} className="shrink-0">

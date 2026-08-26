@@ -1,6 +1,7 @@
 import { ClipboardX, Download, Gauge, KeySquare, Phone } from "lucide-react";
 import { pool } from "@/lib/db/client";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
+import { formatDateBR } from "@/lib/utils/format-datetime";
 import { ACCESS_REQUEST_STATUSES, ACCESS_STATUS_LABELS } from "./labels";
 import type { AuditLogRow, DeniedRequestRow, PendingCheckinAssetRow } from "./types";
 import { AuditLogList } from "./audit-log-list";
@@ -164,7 +165,7 @@ export default async function ExecutiveDashboardPage() {
                   </span>
                   {" — "}
                   {r.requester?.full_name ?? "Colaborador removido"}
-                  {r.decision_at ? ` (${new Date(r.decision_at).toLocaleDateString("pt-BR")})` : ""}
+                  {r.decision_at ? ` (${formatDateBR(r.decision_at)})` : ""}
                   {r.review_notes ? <p className="mt-1 text-slate-600">Motivo: {r.review_notes}</p> : null}
                 </Card>
               </li>

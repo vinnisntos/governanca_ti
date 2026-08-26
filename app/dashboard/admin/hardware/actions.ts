@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { withRequestContext } from "@/lib/db/context";
 import { getClientIp } from "@/lib/utils/client-ip";
 import { saveFile, deleteFile } from "@/lib/storage/local";
+import { isPdfFile } from "@/lib/utils/sniff-pdf-type";
 import {
   upsertHardwareAssetSchema,
   updateHardwareAssetStatusSchema,
@@ -134,16 +135,15 @@ export async function uploadHardwareContractAction(formData: FormData) {
     redirectWithError(PATH, "Selecione um arquivo PDF para anexar.");
   }
 
-  if (
-    !contractPdfConstraints.allowedMimeTypes.includes(
-      file.type as (typeof contractPdfConstraints.allowedMimeTypes)[number]
-    )
-  ) {
-    redirectWithError(PATH, "O contrato deve ser um arquivo PDF.");
-  }
-
   if (file.size > contractPdfConstraints.maxSizeBytes) {
     redirectWithError(PATH, "Arquivo muito grande (máximo 10MB).");
+  }
+
+  // Confere a assinatura binária real (%PDF-) em vez de confiar só no
+  // Content-Type declarado pelo client — mesmo padrão já usado para a foto
+  // de check-in (lib/utils/sniff-image-type.ts).
+  if (!(await isPdfFile(file))) {
+    redirectWithError(PATH, "O contrato deve ser um arquivo PDF.");
   }
 
   // Caminho SEMPRE montado no servidor a partir do profile_id do responsável

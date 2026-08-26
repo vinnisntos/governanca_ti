@@ -5,6 +5,7 @@ import { Boxes } from "lucide-react";
 import { updateHardwareAssetStatusAction, uploadHardwareContractAction } from "./actions";
 import { CATEGORY_LABELS, STATUS_LABELS, STATUS_TONE } from "./labels";
 import type { AssetWithContract } from "./types";
+import { formatDateBR } from "@/lib/utils/format-datetime";
 import { matchesSearch } from "@/lib/utils/normalize-text";
 import { SearchInput } from "@/components/ui/search-input";
 import { Card } from "@/components/ui/card";
@@ -95,7 +96,7 @@ export function AssetList({ assets, profiles }: { assets: AssetWithContract[]; p
                   {asset.contract ? (
                     <p className="text-sm text-slate-600">
                       Contrato assinado em{" "}
-                      {asset.contract.signed_at ? new Date(asset.contract.signed_at).toLocaleDateString("pt-BR") : "—"}
+                      {asset.contract.signed_at ? formatDateBR(asset.contract.signed_at) : "—"}
                       {asset.contractSignedUrl ? (
                         <>
                           {" "}

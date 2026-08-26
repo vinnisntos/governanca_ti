@@ -28,9 +28,13 @@ export async function resolveMaintenanceAction(formData: FormData) {
   }
 
   const clientIp = await getClientIp();
+  // "and maintenance_requested = true": sem isso, era possível "resolver
+  // manutenção" de um check-in que nunca solicitou manutenção nenhuma.
   const { rowCount } = await withRequestContext({ userId: session!.id, clientIp }, (client) =>
     client.query(
-      "update hardware_checkins set maintenance_resolved = true, admin_notes = $2 where id = $1 returning id",
+      `update hardware_checkins set maintenance_resolved = true, admin_notes = $2
+       where id = $1 and maintenance_requested = true
+       returning id`,
       [checkinId, typeof adminNotes === "string" && adminNotes.length > 0 ? adminNotes : null]
     )
   ).catch((error: unknown) => {
@@ -39,7 +43,7 @@ export async function resolveMaintenanceAction(formData: FormData) {
   });
 
   if (!rowCount) {
-    redirectWithError(PATH, "Check-in não encontrado ou não foi possível atualizá-lo.");
+    redirectWithError(PATH, "Check-in não encontrado, não solicitou manutenção, ou não foi possível atualizá-lo.");
   }
 
   redirectWithSuccess(PATH, "Manutenção marcada como resolvida.");

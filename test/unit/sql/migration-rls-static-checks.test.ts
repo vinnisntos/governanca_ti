@@ -20,8 +20,12 @@ const sql = readFileSync(path.resolve(__dirname, "../../../db/migrations/0001_in
 // Só o SQL executável importa para estas checagens — comentários de "--"
 // documentam de propósito o que auth.uid()/auth.role() do PostgREST viram
 // nesta migration, e não devem contar como uso real.
+// Split por /\r?\n/ (não só "\n"): num checkout com CRLF, sobraria um "\r"
+// no fim de cada linha, o que impede /--.*$/ de casar (o "." do JS não
+// consome \r/\n, então não há como alcançar o "$" de fim de string) — o
+// comentário inteiro vazava sem ser removido.
 const executableSql = sql
-  .split("\n")
+  .split(/\r?\n/)
   .map((line) => line.replace(/--.*$/, ""))
   .join("\n");
 

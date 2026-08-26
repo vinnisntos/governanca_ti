@@ -2,6 +2,7 @@ import { CheckCircle2, ClipboardEdit, Laptop2 } from "lucide-react";
 import { pool } from "@/lib/db/client";
 import { getSession } from "@/lib/auth/session";
 import { currentReferenceMonth } from "@/lib/utils/reference-month";
+import { formatDateBR } from "@/lib/utils/format-datetime";
 import { submitCheckinAction } from "./actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
@@ -100,7 +101,7 @@ export default async function HardwarePage({
         <Card className="mb-6 flex items-center justify-between gap-3">
           <p className="text-sm text-slate-600">
             Termo de responsabilidade assinado em{" "}
-            {latestContract.signed_at ? new Date(latestContract.signed_at).toLocaleDateString("pt-BR") : "—"}
+            {latestContract.signed_at ? formatDateBR(latestContract.signed_at) : "—"}
           </p>
           <LinkButton href={`/dashboard/hardware/contratos/${latestContract.id}`} target="_blank" rel="noreferrer" variant="outline" size="sm">
             Ver PDF
@@ -215,7 +216,7 @@ export default async function HardwarePage({
                       <ul className="mt-2 space-y-1 border-l border-slate-200 pl-3">
                         {history.map((c) => (
                           <li key={c.id}>
-                            {new Date(c.created_at).toLocaleDateString("pt-BR")} — {CONDITION_LABELS[c.physical_condition] ?? c.physical_condition}
+                            {formatDateBR(c.created_at)} — {CONDITION_LABELS[c.physical_condition] ?? c.physical_condition}
                             {c.maintenance_requested
                               ? c.maintenance_resolved
                                 ? " — manutenção resolvida"

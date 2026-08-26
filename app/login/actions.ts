@@ -20,6 +20,14 @@ type LoginProfileRow = {
   must_change_password: boolean;
 };
 
+// Hash-dummy em formato válido (mesmos custos scrypt: N=16384/r=8/p=1), sem
+// corresponder a nenhuma senha real. Usado quando o e-mail não existe, para
+// que verifyPassword() sempre faça o mesmo trabalho computacional que faria
+// contra um hash real — sem isso, "e-mail inexistente" respondia bem mais
+// rápido que "senha errada" (verifyPassword nunca era chamado), um timing
+// oracle que permite diferenciar as duas situações pelo tempo de resposta.
+const DUMMY_PASSWORD_HASH = `scrypt:16384:8:1:${"00".repeat(16)}:${"00".repeat(64)}`;
+
 // Rate limiting de força bruta é aplicado na borda (Nginx limit_req +
 // fail2ban) — este Server Action nunca deve ser a única linha de defesa
 // contra tentativas repetidas.
@@ -48,9 +56,16 @@ export async function loginAction(
   );
   const profile = rows[0];
 
+  // Sempre chama verifyPassword (contra um hash-dummy quando o e-mail não
+  // existe) para não vazar por timing se foi o e-mail ou a senha que falhou.
+  const passwordOk = await verifyPassword(
+    parsed.data.password,
+    profile?.password_hash ?? DUMMY_PASSWORD_HASH
+  );
+
   // Mensagem genérica: nunca expor se foi o e-mail ou a senha que falhou
   // (evita enumeração de contas).
-  if (!profile || !(await verifyPassword(parsed.data.password, profile.password_hash))) {
+  if (!profile || !passwordOk) {
     console.error("[auth] login failed", { email: parsed.data.email });
     return { error: "E-mail ou senha inválidos." };
   }

@@ -28,7 +28,7 @@ export async function revokeAccessAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirectWithError(PATH, "Solicitação inválida.");
+    redirectWithError(PATH, parsed.error.issues[0]?.message ?? "Solicitação inválida.");
   }
 
   const clientIp = await getClientIp();
