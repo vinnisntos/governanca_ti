@@ -13,6 +13,7 @@ import { formatTicketNumber } from "@/lib/utils/format-ticket-number";
 import { formatDateTimeBR } from "@/lib/utils/format-datetime";
 import { ReplyForm } from "./reply-form";
 import { ReopenForm } from "./reopen-form";
+import { TicketAutoRefresh } from "./ticket-auto-refresh";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
 import { Card, Section } from "@/components/ui/card";
@@ -154,6 +155,7 @@ export default async function TicketDetailPage({
 
   return (
     <>
+      <TicketAutoRefresh />
       <FlashToast success={successMessage} error={errorMessage} />
 
       <PageHeader
