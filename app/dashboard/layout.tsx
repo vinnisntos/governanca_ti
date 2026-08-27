@@ -6,6 +6,7 @@ import { signOutAction } from "./actions";
 import { SidebarContent } from "@/components/nav/sidebar-content";
 import { MobileNav } from "@/components/nav/mobile-nav";
 import { MobileHeaderTitle } from "@/components/nav/mobile-header-title";
+import { VisitTracker } from "@/components/nav/visit-tracker";
 
 // Autoridade real de acesso ao portal (o middleware só sabe se existe UM
 // cookie de sessão — não tem acesso ao banco no runtime Edge). Sem RLS no
@@ -33,6 +34,7 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[16rem_1fr]">
+      <VisitTracker />
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-full focus:bg-primary-600 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-900 focus:shadow-popover"
