@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useFormState } from "react-dom";
 import { useSearchParams } from "next/navigation";
-import { Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { loginAction, type LoginActionState } from "./actions";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Alert } from "@/components/ui/alert";
+import { Going2Logo } from "@/components/ui/going2-logo";
 
 const initialState: LoginActionState = { error: null };
 
@@ -28,8 +29,8 @@ export function LoginForm() {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary-600 text-slate-900 shadow-card">
-            <ShieldCheck className="h-6 w-6" aria-hidden />
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-card">
+            <Going2Logo className="h-9 w-9" />
           </div>
           <h1 className="mt-3 text-lg font-semibold text-slate-900">Portal de Governança de TI</h1>
           <p className="mt-1 text-sm text-slate-600">Acesso restrito a colaboradores.</p>
