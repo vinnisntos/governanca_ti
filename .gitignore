@@ -27,3 +27,11 @@ next-env.d.ts
 /ARCH_DECISIONS.txt
 /SETUP.md
 /README.txt
+
+# planilha financeira sincronizada do Google Drive (dados de fornecedor/custo) — não sobe pro git
+/Assinaturas*.xlsx
+
+# chave de Service Account do Google Cloud baixada em JSON — nunca sobe pro
+# git; o conteúdo dela vira a env var GOOGLE_SERVICE_ACCOUNT_KEY (base64) em
+# .env.local, e o arquivo é apagado depois de convertido.
+/governanca-ti-integracoes-*.json

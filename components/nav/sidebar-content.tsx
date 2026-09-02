@@ -1,8 +1,9 @@
 "use client";
 
-import { LogOut, ShieldCheck } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { SidebarNav } from "./sidebar-nav";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { Going2Logo } from "@/components/ui/going2-logo";
 
 export function SidebarContent({
   role,
@@ -18,7 +19,7 @@ export function SidebarContent({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-slate-200 px-2 pb-4">
-        <ShieldCheck className="h-5 w-5 text-primary-700" aria-hidden />
+        <Going2Logo className="h-6 w-6 shrink-0" />
         <span className="text-sm font-semibold text-slate-900">Governança de TI</span>
       </div>
 

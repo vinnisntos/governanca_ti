@@ -22,6 +22,13 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Necessário no Next 14.x para o Next de fato carregar instrumentation.ts
+  // no boot do servidor (usado pra agendar a sincronização automática do
+  // Catálogo de Acessos — ver instrumentation.ts). Sem isso, o arquivo é
+  // ignorado silenciosamente, sem erro nem aviso no build.
+  experimental: {
+    instrumentationHook: true,
+  },
   async headers() {
     return [
       {
