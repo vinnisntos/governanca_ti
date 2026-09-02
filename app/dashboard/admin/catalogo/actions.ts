@@ -7,6 +7,7 @@ import { withRequestContext } from "@/lib/db/context";
 import { getClientIp } from "@/lib/utils/client-ip";
 import { upsertAccessCatalogSchema } from "@/lib/validations/access-catalog";
 import { redirectWithError, redirectWithSuccess } from "@/lib/utils/action-redirect";
+import { syncSoftwareCatalogFromSheet } from "@/lib/integrations/software-catalog-sync";
 
 // Autorização real: requireRole(["admin_ti"]), no lugar da antiga policy
 // access_catalog_write_admin.
@@ -195,4 +196,35 @@ export async function toggleCatalogItemActiveAction(formData: FormData) {
   }
 
   redirectWithSuccess(PATH, nextActive ? "Sistema ativado." : "Sistema desativado.");
+}
+
+export async function syncCatalogFromSheetAction() {
+  await assertTrustedOrigin();
+
+  const { authorized, session } = await requireRole(["admin_ti"]);
+  if (!authorized) {
+    redirectWithError(PATH, "Você não tem permissão para esta ação.");
+  }
+
+  const clientIp = await getClientIp();
+
+  let summary: Awaited<ReturnType<typeof syncSoftwareCatalogFromSheet>> | undefined;
+  try {
+    summary = await syncSoftwareCatalogFromSheet({ userId: session!.id, clientIp });
+  } catch (error) {
+    console.error("[access-catalog] sheet sync failed", { message: (error as Error).message });
+    redirectWithError(PATH, "Não foi possível sincronizar com a planilha (veja os logs do servidor).");
+  }
+
+  const parts: string[] = [];
+  if (summary!.updated.length) parts.push(`${summary!.updated.length} atualizado(s)`);
+  if (summary!.inserted.length) parts.push(`${summary!.inserted.length} novo(s) pendente(s) de revisão`);
+  if (summary!.conflicts.length || summary!.errors.length) {
+    parts.push(`${summary!.conflicts.length + summary!.errors.length} com falha`);
+  }
+
+  redirectWithSuccess(
+    PATH,
+    parts.length ? `Sincronização concluída: ${parts.join(", ")}.` : "Sincronização concluída: nada novo."
+  );
 }

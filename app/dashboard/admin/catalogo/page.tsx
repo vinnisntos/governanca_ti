@@ -1,6 +1,6 @@
-import { Plus } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { pool } from "@/lib/db/client";
-import { createCatalogItemAction } from "./actions";
+import { createCatalogItemAction, syncCatalogFromSheetAction } from "./actions";
 import { CatalogList } from "./catalog-list";
 import { PageHeader } from "@/components/ui/page-header";
 import { FlashToast } from "@/components/ui/flash-toast";
@@ -73,46 +73,55 @@ export default async function AccessCatalogAdminPage({
         title="Catálogo de Acessos"
         description="Sistemas disponíveis para solicitação de acesso pelos colaboradores."
         actions={
-          <Modal
-            title="Novo sistema"
-            trigger={
-              <Button variant="primary">
-                <Plus className="h-4 w-4" aria-hidden />
-                Novo sistema
-              </Button>
-            }
-          >
-            <form action={createCatalogItemAction} className="space-y-4">
-              <Field label="Nome do sistema" htmlFor="name" required>
-                <Input id="name" name="name" required minLength={2} placeholder="Ex.: CRM, Figma, ERP" />
-              </Field>
-
-              <Field label="Descrição" htmlFor="description" hint="Opcional">
-                <Textarea id="description" name="description" rows={2} />
-              </Field>
-
-              <Field label="Custo mensal da licença (R$)" htmlFor="monthly_cost" hint="Opcional">
-                <Input id="monthly_cost" name="monthly_cost" type="number" step="0.01" min="0" />
-              </Field>
-
-              <Field label="Departamento responsável" htmlFor="owner_department_id" hint="Opcional">
-                <Select id="owner_department_id" name="owner_department_id" defaultValue="">
-                  <option value="">Nenhum</option>
-                  {departments.map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-
-              <div className="flex justify-end">
-                <SubmitButton variant="primary" pendingLabel="Adicionando...">
-                  Adicionar ao catálogo
-                </SubmitButton>
-              </div>
+          <div className="flex items-center gap-2">
+            <form action={syncCatalogFromSheetAction}>
+              <SubmitButton variant="outline" pendingLabel="Sincronizando...">
+                <RefreshCw className="h-4 w-4" aria-hidden />
+                Sincronizar com a planilha
+              </SubmitButton>
             </form>
-          </Modal>
+
+            <Modal
+              title="Novo sistema"
+              trigger={
+                <Button variant="primary">
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Novo sistema
+                </Button>
+              }
+            >
+              <form action={createCatalogItemAction} className="space-y-4">
+                <Field label="Nome do sistema" htmlFor="name" required>
+                  <Input id="name" name="name" required minLength={2} placeholder="Ex.: CRM, Figma, ERP" />
+                </Field>
+
+                <Field label="Descrição" htmlFor="description" hint="Opcional">
+                  <Textarea id="description" name="description" rows={2} />
+                </Field>
+
+                <Field label="Custo mensal da licença (R$)" htmlFor="monthly_cost" hint="Opcional">
+                  <Input id="monthly_cost" name="monthly_cost" type="number" step="0.01" min="0" />
+                </Field>
+
+                <Field label="Departamento responsável" htmlFor="owner_department_id" hint="Opcional">
+                  <Select id="owner_department_id" name="owner_department_id" defaultValue="">
+                    <option value="">Nenhum</option>
+                    {departments.map((department) => (
+                      <option key={department.id} value={department.id}>
+                        {department.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+
+                <div className="flex justify-end">
+                  <SubmitButton variant="primary" pendingLabel="Adicionando...">
+                    Adicionar ao catálogo
+                  </SubmitButton>
+                </div>
+              </form>
+            </Modal>
+          </div>
         }
       />
 
