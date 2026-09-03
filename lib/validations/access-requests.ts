@@ -75,3 +75,31 @@ export const revokeAccessSchema = z
   .strict();
 
 export type RevokeAccessInput = z.infer<typeof revokeAccessSchema>;
+
+// Usado por admin_ti para conceder acesso diretamente a um colaborador, sem
+// passar pelo fluxo de solicitação+aprovação (ex.: acesso já concedido fora
+// do portal e que precisa só ser registrado). Mesmo formato de
+// createAccessRequestSchema (system XOR requested_system_name), com
+// profile_id no lugar do requester vir da própria sessão.
+export const grantAccessSchema = z
+  .object({
+    profile_id: z.string().uuid(),
+    system_id: z.string().min(1, "Selecione um sistema"),
+    requested_system_name: z.string().trim().min(2).max(120).optional(),
+    justification: z
+      .string()
+      .trim()
+      .min(10, "Descreva o motivo da concessão (mín. 10 caracteres)")
+      .max(2000),
+  })
+  .strict()
+  .refine(
+    (data) => data.system_id === OTHER_SYSTEM_VALUE || z.string().uuid().safeParse(data.system_id).success,
+    { message: "Sistema inválido", path: ["system_id"] }
+  )
+  .refine((data) => data.system_id !== OTHER_SYSTEM_VALUE || Boolean(data.requested_system_name), {
+    message: "Informe o nome do sistema desejado (mín. 2 caracteres)",
+    path: ["requested_system_name"],
+  });
+
+export type GrantAccessInput = z.infer<typeof grantAccessSchema>;
