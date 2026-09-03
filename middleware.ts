@@ -56,14 +56,14 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
-  if (hasSessionCookie && isPublicPath) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    url.search = "";
-    const response = NextResponse.redirect(url);
-    response.headers.set("Content-Security-Policy", csp);
-    return response;
-  }
+  // Não existe mais o atalho "cookie presente => pula /login e manda pro
+  // /dashboard": com Edge runtime (sem `pg`), este middleware só sabe se o
+  // cookie está PRESENTE, não se a sessão que ele referencia ainda é válida
+  // no banco. Um cookie presente porém inválido (sessão expirada/apagada)
+  // fazia isso entrar em loop infinito com o redirect("/login") da própria
+  // app/dashboard/layout.tsx (que tem acesso ao banco e é a autoridade
+  // real). Agora quem decide se /login deve pular pra /dashboard é a própria
+  // página de login (app/login/page.tsx), que consulta getSession().
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", csp);
